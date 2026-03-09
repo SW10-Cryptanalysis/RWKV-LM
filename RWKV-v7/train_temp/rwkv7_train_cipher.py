@@ -263,44 +263,45 @@ class MODEL(nn.Module):
         return x    
 
 
-# --- INITIALIZATION ---
-model = MODEL().to('cuda').float() # Force FP32 for the simplified kernel
+if __name__ == "__main__":
+    # --- INITIALIZATION ---
+    model = MODEL().to('cuda').float() # Force FP32 for the simplified kernel
 
-# Setup Decay Groups
-decay, no_decay = [], []
-for n, p in model.named_parameters():
-    if not p.requires_grad: continue
-    if ('.weight' in n or 'emb' in n) and ('ln' not in n):
-        decay.append(p)
-    else:
-        no_decay.append(p)
+    # Setup Decay Groups
+    decay, no_decay = [], []
+    for n, p in model.named_parameters():
+        if not p.requires_grad: continue
+        if ('.weight' in n or 'emb' in n) and ('ln' not in n):
+            decay.append(p)
+        else:
+            no_decay.append(p)
 
-opt = torch.optim.AdamW([
-    {"params": decay, "weight_decay": 0.1},
-    {"params": no_decay, "weight_decay": 0.0},
-], lr=lr0)
-sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps, eta_min=lr1)
+    opt = torch.optim.AdamW([
+        {"params": decay, "weight_decay": 0.1},
+        {"params": no_decay, "weight_decay": 0.0},
+    ], lr=lr0)
+    sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps, eta_min=lr1)
 
-wandb.init(project="RWKV-7-Cipher", name=f"Goose-C{C}-L12-{datetime.datetime.now().strftime('%H%M')}")
+    wandb.init(project="RWKV-7-Cipher", name=f"Goose-C{C}-L12-{datetime.datetime.now().strftime('%H%M')}")
 
-# --- TRAINING LOOP ---
-for step in range(steps):
-    batch = get_batch()
-    x = batch[:, :-1]
-    y = batch[:, 1:]
-    
-    logits = model(x)
-    # ignore_index=0 ensures we don't calculate loss on the padding
-    loss = F.cross_entropy(logits.reshape(-1, V), y.reshape(-1), ignore_index=0)
+    # --- TRAINING LOOP ---
+    for step in range(steps):
+        batch = get_batch()
+        x = batch[:, :-1]
+        y = batch[:, 1:]
+        
+        logits = model(x)
+        # ignore_index=0 ensures we don't calculate loss on the padding
+        loss = F.cross_entropy(logits.reshape(-1, V), y.reshape(-1), ignore_index=0)
 
-    opt.zero_grad(set_to_none=True)
-    loss.backward()
-    clip_grad_norm_(model.parameters(), 1.0)
-    opt.step()
-    sch.step()
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        clip_grad_norm_(model.parameters(), 1.0)
+        opt.step()
+        sch.step()
 
-    if step % 100 == 0:
-        print(f"Step {step}/{steps} | Loss: {loss.item():.4f} | LR: {sch.get_last_lr()[0]:.2e}")
-        wandb.log({"loss": loss.item(), "lr": sch.get_last_lr()[0]}, step=step)
+        if step % 100 == 0:
+            print(f"Step {step}/{steps} | Loss: {loss.item():.4f} | LR: {sch.get_last_lr()[0]:.2e}")
+            wandb.log({"loss": loss.item(), "lr": sch.get_last_lr()[0]}, step=step)
 
-torch.save(model.state_dict(), "rwkv7_cipher_final.pth")
+    torch.save(model.state_dict(), "rwkv7_cipher_final.pth")
