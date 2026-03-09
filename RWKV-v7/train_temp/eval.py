@@ -19,14 +19,27 @@ generated = input_ids[:, :prompt_length]
 
 print(f"--- STARTING EVALUATION ---")
 with torch.no_grad():
-    for i in range(200): # Predict next 200 tokens
-        logits = model(generated)
-        # Focus on the very last token's predictions
-        next_token = torch.argmax(logits[:, -1, :], dim=-1).unsqueeze(0)
-        generated = torch.cat([generated, next_token], dim=1)
+    print("--- GENERATING ---")
+    for _ in range(50):
+        T_current = generated.size(1)
         
-        if next_token.item() == 0: # Stop if it hits a PAD/EOS token
-            break
+        # Calculate how much padding we need to reach the next multiple of 16
+        pad_needed = (16 - (T_current % 16)) % 16
+        
+        if pad_needed > 0:
+            # Pad with zeros at the end
+            model_input = F.pad(generated, (0, pad_needed), "constant", 0)
+        else:
+            model_input = generated
+        
+        logits = model(model_input)
+        
+        # IMPORTANT: We want the logit for the ACTUAL last token (T_current - 1)
+        # not the padded tokens.
+        next_token = torch.argmax(logits[:, T_current - 1, :], dim=-1).unsqueeze(0)
+        
+        generated = torch.cat([generated, next_token], dim=1)
+        if next_token.item() == 0: break
 
 # 4. "Human Readable" Decode
 # Since your cipher is likely mapped to specific token IDs:
