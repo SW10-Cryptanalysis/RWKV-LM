@@ -17,7 +17,7 @@ MyFunction = torch.jit.script_method
 V = 2560      # Matches your Mistral vocab_size
 C = 512       # Matches your Mistral hidden_size
 B = 8         # Adjust based on L4 VRAM (8-16 should fit easily)
-T = 512       # Must be multiple of CHUNK_LEN (16)
+T = 513       # Must be multiple of CHUNK_LEN (16)
 steps = 10000
 lr0 = 3e-4    # Initial LR
 lr1 = 1e-5    # Final LR (Cosine decay)
@@ -51,10 +51,11 @@ class WindBackstepping(torch.autograd.Function):
         dw,dq,dk,dv,dz,db = [torch.empty_like(x) for x in [w,q,k,v,z,b]]
         torch.ops.wind_backstepping.backward(w,q,k,v,z,b, dy,s,sa, dw,dq,dk,dv,dz,db)
         return dw,dq,dk,dv,dz,db
+
 def RUN_CUDA_RWKV7g(q,w,k,v,a,b):
     B,T,HC = q.shape
-    q,w,k,v,a,b = [i.view(B,T,HC//16,16) for i in [q,w,k,v,a,b]] # !!! set to match HEAD_SIZE !!!
-    # q,w,k,v,a,b = [i.view(B,T,HC//64,64) for i in [q,w,k,v,a,b]]
+    # Use the HEAD_SIZE variable instead of hardcoded 16
+    q,w,k,v,a,b = [i.view(B,T,HC//HEAD_SIZE,HEAD_SIZE) for i in [q,w,k,v,a,b]] 
     return WindBackstepping.apply(w,q,k,v,a,b).view(B,T,HC)
 
 class FFN(nn.Module):
@@ -257,7 +258,7 @@ class MODEL(nn.Module):
 
 
 # --- INITIALIZATION ---
-model = MODEL().to('cuda')
+model = MODEL().to('cuda').float() # Force FP32 for the simplified kernel
 
 # Setup Decay Groups
 decay, no_decay = [], []
