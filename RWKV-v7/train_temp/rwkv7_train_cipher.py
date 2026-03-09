@@ -215,6 +215,47 @@ class RWKV_Tmix_x070(MyModule):
         return x, v_first
 
 
+class MODEL(nn.Module):
+    def __init__(s):
+        super().__init__()
+        args = SimpleNamespace()
+        args.n_head = C//HEAD_SIZE
+        args.head_size = HEAD_SIZE
+        args.n_embd = C
+        args.dim_att = C
+        args.n_layer = 2
+
+        s.e=nn.Embedding(V,C)
+        
+        s.ln1a=nn.LayerNorm(C)
+        s.ln1b=nn.LayerNorm(C)
+        s.ln1c=nn.LayerNorm(C)
+        s.rwkv1=RWKV_Tmix_x070(args,0)
+        s.ffn1=FFN(C)
+
+        s.ln2a=nn.LayerNorm(C)
+        s.ln2b=nn.LayerNorm(C)
+        s.ln2c=nn.LayerNorm(C)
+        s.rwkv2=RWKV_Tmix_x070(args,1)
+        s.ffn2=FFN(C)
+
+        s.lno=nn.LayerNorm(C)
+        s.o=nn.Linear(C,V)
+
+    def forward(s,x):
+        x = s.e(x)
+       
+        xx, v_first = s.rwkv1(s.ln1a(x), torch.empty_like(x))
+        x = x + xx
+        x = x + s.ffn1(s.ln1b(x))
+        xx, v_first = s.rwkv2(s.ln2a(x), v_first)
+        x = x + xx
+        x = x + s.ffn2(s.ln2b(x))
+
+        x = s.o(s.lno(x))
+        return x    
+
+
 # --- INITIALIZATION ---
 model = MODEL().to('cuda')
 
