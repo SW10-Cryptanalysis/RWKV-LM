@@ -45,7 +45,13 @@ class CipherDataset(torch.utils.data.Dataset):
 
 # Setup DataLoader
 dataset = CipherDataset(TOKENIZED_TRAINING_DIR)
-dataloader = DataLoader(dataset, batch_size=B, shuffle=True, num_samples=None)
+dataloader = DataLoader(
+    dataset, 
+    batch_size=B, 
+    shuffle=True, 
+    num_workers=4, 
+    pin_memory=True
+)
 data_iter = iter(dataloader)
 
 def get_batch():
