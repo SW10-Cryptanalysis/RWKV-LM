@@ -52,11 +52,17 @@ class WindBackstepping(torch.autograd.Function):
         torch.ops.wind_backstepping.backward(w,q,k,v,z,b, dy,s,sa, dw,dq,dk,dv,dz,db)
         return dw,dq,dk,dv,dz,db
 
-def RUN_CUDA_RWKV7g(q,w,k,v,a,b):
-    B,T,HC = q.shape
-    # Use the HEAD_SIZE variable instead of hardcoded 16
-    q,w,k,v,a,b = [i.view(B,T,HC//HEAD_SIZE,HEAD_SIZE) for i in [q,w,k,v,a,b]] 
-    return WindBackstepping.apply(w,q,k,v,a,b).view(B,T,HC)
+def RUN_CUDA_RWKV7g(q, w, k, v, a, b, HEAD_SIZE: int): # Added HEAD_SIZE as argument
+    B, T, HC = q.shape
+    H = HC // HEAD_SIZE
+    # Explicitly view each to avoid TorchScript list-comprehension quirks
+    q = q.view(B, T, H, HEAD_SIZE)
+    w = w.view(B, T, H, HEAD_SIZE)
+    k = k.view(B, T, H, HEAD_SIZE)
+    v = v.view(B, T, H, HEAD_SIZE)
+    a = a.view(B, T, H, HEAD_SIZE)
+    b = b.view(B, T, H, HEAD_SIZE)
+    return WindBackstepping.apply(w, q, k, v, a, b).view(B, T, HC)
 
 class FFN(nn.Module):
     def __init__(self, C):
