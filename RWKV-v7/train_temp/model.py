@@ -170,6 +170,7 @@ class RWKV_Tmix_x070(MyModule):
 
     @MyFunction
     def forward(self, x, v_first):
+        args_type = x.dtype # Save original type (bf16)
         B, T, C = x.size()
         H = self.n_head
         xx = self.time_shift(x) - x
@@ -198,12 +199,17 @@ class RWKV_Tmix_x070(MyModule):
         kk = F.normalize(kk.view(B, T, H, -1), dim=-1, p=2.0).view(B, T, C)
         k = k * (1 + (a - 1) * self.k_a)
 
-        x = RUN_CUDA_RWKV7g(r, w, k, v, -kk, kk * a, self.head_size)
-        x = self.ln_x(x.view(B * T, C)).view(B, T, C)
+        x_out = RUN_CUDA_RWKV7g(r, w, k, v, -kk, kk * a, self.head_size)
+        
+        # Cast back to original type (bf16) for the GroupNorm and residual
+        x_out = x_out.to(dtype=args_type)
+        x_out = self.ln_x(x_out.view(B * T, C)).view(B, T, C)
 
-        x = x + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v.view(B, T, H, -1)).view(B, T, C)
-        x = self.output(x * g)
-        return x, v_first
+        # Ensure everything added to the residual stream matches dtypes
+        v_res = v.to(dtype=args_type) 
+        x_out = x_out + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v_res.view(B, T, H, -1)).view(B, T, C)
+        
+        return self.output(x_out * g), v_first
 
 
 class RWKV7Layer(nn.Module):
