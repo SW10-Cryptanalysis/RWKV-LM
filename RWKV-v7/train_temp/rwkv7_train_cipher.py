@@ -35,11 +35,12 @@ data_iter = iter(dataloader)
 def get_batch():
     global data_iter
     try:
+        # Move to GPU but don't cast to bf16 yet (labels need to be long)
         return next(data_iter).to('cuda')
     except StopIteration:
         data_iter = iter(dataloader)
         return next(data_iter).to('cuda')
-
+    
 if __name__ == "__main__":
     # --- MODEL INITIALIZATION ---
     model = get_model()
