@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
 from types import SimpleNamespace
 from config import cfg
 
@@ -226,23 +227,24 @@ class RWKV7Model(nn.Module):
     def __init__(self):
         super().__init__()
         self.embedding = nn.Embedding(cfg.vocab_size, cfg.n_embd)
-        
-        # Create N layers dynamically
         self.layers = nn.ModuleList([RWKV7Layer(i) for i in range(cfg.n_layer)])
-        
         self.ln_out = nn.LayerNorm(cfg.n_embd)
         self.lm_head = nn.Linear(cfg.n_embd, cfg.vocab_size, bias=False)
+        self.grad_checkpointing = True # Enable this
 
     def forward(self, x):
         x = self.embedding(x)
-        v_first = torch.empty_like(x) # Placeholder for Layer 0 to fill
+        v_first = torch.empty_like(x)
         
         for layer in self.layers:
-            x, v_first = layer(x, v_first)
+            if self.grad_checkpointing and self.training:
+                # This is the secret sauce
+                x, v_first = checkpoint.checkpoint(layer, x, v_first, use_reentrant=False)
+            else:
+                x, v_first = layer(x, v_first)
 
         x = self.lm_head(self.ln_out(x))
         return x
-
 
 def apply_custom_initialization(model, config):
     """
