@@ -41,18 +41,18 @@ class WindBackstepping(torch.autograd.Function):
 
 
 def RUN_CUDA_RWKV7g(q, w, k, v, a, b, head_size: int):
-    """Execute RWKV-7 attention mechanism via CUDA kernel."""
     B, T, HC = q.shape
     H = HC // head_size
     
-    # Reshape to (B, T, H, head_size) for kernel processing
-    q = q.view(B, T, H, head_size)
-    w = w.view(B, T, H, head_size)
-    k = k.view(B, T, H, head_size)
-    v = v.view(B, T, H, head_size)
-    a = a.view(B, T, H, head_size)
-    b = b.view(B, T, H, head_size)
+    # Cast everything to float32 specifically for the kernel
+    q = q.view(B, T, H, head_size).float()
+    w = w.view(B, T, H, head_size).float()
+    k = k.view(B, T, H, head_size).float()
+    v = v.view(B, T, H, head_size).float()
+    a = a.view(B, T, H, head_size).float()
+    b = b.view(B, T, H, head_size).float()
     
+    # The output will come back as float32
     return WindBackstepping.apply(w, q, k, v, a, b).view(B, T, HC)
 
 
