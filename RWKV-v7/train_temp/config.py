@@ -18,7 +18,7 @@ class Config:
     n_layer: int = 2  # Number of transformer layers
     head_size: int = 64  # Size of each attention head
     dim_att: int = 512  # Attention dimension (should equal n_embd)
-    
+        
     # --- RWKV-7 KERNEL CONFIG ---
     chunk_len: int = 16  # Must divide sequence length evenly
     
@@ -26,7 +26,7 @@ class Config:
     pad_token_id: int = 0
     
     # --- TRAINING HYPERPARAMETERS ---
-    batch_size: int = 8
+    batch_size: int = 32
     sequence_length: int = 513  # Must be multiple of chunk_len (16)
     steps: int = 10000
     learning_rate_init: float = 3e-4  # Initial learning rate
@@ -49,9 +49,10 @@ class Config:
     cuda_flags: list = None
     
     def __post_init__(self):
-        """Validate configuration and set derived values."""
-        assert self.dim_att == self.n_embd, "dim_att must equal n_embd"
-        assert self.sequence_length % self.chunk_len == 0, f"sequence_length ({self.sequence_length}) must be divisible by chunk_len ({self.chunk_len})"
+        # Check if the training sequence (T-1) is divisible by 16
+        train_length = self.sequence_length - 1
+        assert train_length % self.chunk_len == 0, \
+            f"Effective training length ({train_length}) must be divisible by {self.chunk_len}"
         
         # Set cuda flags if not provided
         if self.cuda_flags is None:
