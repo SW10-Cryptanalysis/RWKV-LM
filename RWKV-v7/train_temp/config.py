@@ -15,7 +15,7 @@ class Config:
     # --- ARCHITECTURE ---
     vocab_size: int = 2560  # Matches Mistral tokenizer
     n_embd: int = 512  # Hidden dimension
-    n_layer: int = 2  # Number of transformer layers
+    n_layer: int = 16  # Number of transformer layers
     head_size: int = 64  # Size of each attention head
     dim_att: int = 512  # Attention dimension (should equal n_embd)
         
@@ -31,6 +31,13 @@ class Config:
     steps: int = 10000
     learning_rate_init: float = 3e-4  # Initial learning rate
     learning_rate_final: float = 1e-5  # Final learning rate (cosine decay)
+
+    pad_token_id: int = 0
+    sep_token_id: int = 2495
+    space_token_id: int = 2496
+    bos_token_id: int = 2497
+    eos_token_id: int = 2498
+    char_offset: int = 2499
     
     # --- GRADIENT OPTIMIZATION ---
     grad_clip: float = 1.0

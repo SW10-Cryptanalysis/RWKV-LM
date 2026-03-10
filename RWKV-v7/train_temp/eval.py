@@ -46,12 +46,27 @@ with torch.no_grad():
             break
 
 # --- DECODE OUTPUT ---
-def simple_decode(tokens):
-    """Placeholder decoder - replace with your actual tokenizer if available."""
-    return "".join([chr(t % 256) if 32 <= (t % 256) <= 126 else f"[{t}]" for t in tokens])
+def sota_decode(tokens):
+    char_offset = 2499
+    chars = "abcdefghijklmnopqrstuvwxyz "
+    # Map indices to characters
+    id_to_char = {i + char_offset: char for i, char in enumerate(chars)}
+    id_to_char[cfg.space_token_id] = " "
+    id_to_char[cfg.sep_token_id] = " | " # Visual separator
+    
+    res = []
+    for t in tokens:
+        if t in id_to_char:
+            res.append(id_to_char[t])
+        elif t == cfg.pad_token_id:
+            continue
+        else:
+            res.append(f"[{t}]")
+    return "".join(res)
 
 print(f"\nPROMPT (Cipher):")
-print(simple_decode(generated[0, :prompt_length].tolist()))
+# Use the new decoder!
+print(sota_decode(generated[0, :prompt_length].tolist()))
 
 print(f"\nMODEL OUTPUT (Decryption Attempt):")
-print(simple_decode(generated[0, prompt_length:].tolist()))
+print(sota_decode(generated[0, prompt_length:].tolist()))

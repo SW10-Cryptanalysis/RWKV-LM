@@ -81,4 +81,15 @@ if __name__ == "__main__":
             print(f"Step {step}/{cfg.steps} | Loss: {loss.item():.4f} | LR: {sch.get_last_lr()[0]:.2e}")
             wandb.log({"loss": loss.item(), "lr": sch.get_last_lr()[0]}, step=step)
 
+        # Checkpointing
+        if step > 0 and step % 1000 == 0:
+            ckpt_path = f"rwkv7_step_{step}.pth"
+            torch.save({
+                'step': step,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': opt.state_dict(),
+                'scheduler_state_dict': sch.state_dict(),
+            }, ckpt_path)
+            print(f"--- Saved Checkpoint: {ckpt_path} ---")
+
     torch.save(model.state_dict(), "rwkv7_cipher_final.pth")
