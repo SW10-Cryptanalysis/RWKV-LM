@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.checkpoint as checkpoint
+from torch.utils.checkpoint import checkpoint as torch_checkpoint
 from types import SimpleNamespace
 from config import cfg
 
@@ -243,7 +243,7 @@ class RWKV7Model(nn.Module):
         for layer in self.layers:
             if self.training:
                 # use_reentrant=False is the modern, safer way to checkpoint
-                x, v_first = checkpoint(layer, x, v_first, use_reentrant=False)
+                x, v_first = torch_checkpoint(layer, x, v_first, use_reentrant=False)
             else:
                 x, v_first = layer(x, v_first)
 
