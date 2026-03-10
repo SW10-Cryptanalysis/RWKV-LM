@@ -49,10 +49,13 @@ class Config:
     cuda_flags: list = None
     
     def __post_init__(self):
-        # Check if the training sequence (T-1) is divisible by 16
-        train_length = self.sequence_length - 1
-        assert train_length % self.chunk_len == 0, \
-            f"Effective training length ({train_length}) must be divisible by {self.chunk_len}"
+        """Validate configuration and set derived values."""
+        assert self.dim_att == self.n_embd, "dim_att must equal n_embd"
+        
+        # FIX: Check the length of 'x' (which is sequence_length - 1)
+        effective_length = self.sequence_length - 1
+        assert effective_length % self.chunk_len == 0, \
+            f"Effective training length ({effective_length}) must be divisible by chunk_len ({self.chunk_len})"
         
         # Set cuda flags if not provided
         if self.cuda_flags is None:
