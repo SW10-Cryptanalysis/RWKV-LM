@@ -285,7 +285,7 @@ def get_model():
     Returns:
         Initialized RWKV7Model on CUDA in float32 (required for kernel)
     """
-    model = RWKV7Model().to('cuda').float()
+    model = RWKV7Model().to('cuda').to(torch.bfloat16)
     
     # Apply variance-preserving initialization
     apply_custom_initialization(model, cfg)
