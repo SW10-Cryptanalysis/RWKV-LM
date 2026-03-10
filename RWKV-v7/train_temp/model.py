@@ -215,19 +215,18 @@ class RWKV_Tmix_x070(MyModule):
 class RWKV7Layer(nn.Module):
     def __init__(self, layer_id):
         super().__init__()
-        C = cfg.n_embd
-        self.ln_a = nn.LayerNorm(C)
-        self.ln_b = nn.LayerNorm(C)
+        self.ln_a = nn.LayerNorm(cfg.n_embd)
+        self.ln_b = nn.LayerNorm(cfg.n_embd)
         self.rwkv = RWKV_Tmix_x070(layer_id)
-        self.ffn = FFN(C)
+        self.ffn = FFN(cfg.n_embd)
 
     def forward(self, x, v_first):
-        # Time Mixing
-        xx, v_first = self.rwkv(self.ln_a(x), v_first)
-        x = x + xx
-        # Feed Forward
-        x = x + self.ffn(self.ln_b(x))
-        return x, v_first
+        # We wrap the internal logic to satisfy checkpoint requirements
+        res = x
+        xx, v_first = self.rwkv(self.ln_a(res), v_first)
+        res = res + xx
+        res = res + self.ffn(self.ln_b(res))
+        return res, v_first
 
 class RWKV7Model(nn.Module):
     def __init__(self):
@@ -236,21 +235,19 @@ class RWKV7Model(nn.Module):
         self.layers = nn.ModuleList([RWKV7Layer(i) for i in range(cfg.n_layer)])
         self.ln_out = nn.LayerNorm(cfg.n_embd)
         self.lm_head = nn.Linear(cfg.n_embd, cfg.vocab_size, bias=False)
-        self.grad_checkpointing = True # Enable this
 
     def forward(self, x):
         x = self.embedding(x)
         v_first = torch.empty_like(x)
         
         for layer in self.layers:
-            if self.grad_checkpointing and self.training:
-                # This is the secret sauce
-                x, v_first = checkpoint.checkpoint(layer, x, v_first, use_reentrant=False)
+            if self.training:
+                # use_reentrant=False is the modern, safer way to checkpoint
+                x, v_first = checkpoint(layer, x, v_first, use_reentrant=False)
             else:
                 x, v_first = layer(x, v_first)
 
-        x = self.lm_head(self.ln_out(x))
-        return x
+        return self.lm_head(self.ln_out(x))
 
 def apply_custom_initialization(model, config):
     """
