@@ -26,7 +26,8 @@ class Config:
     pad_token_id: int = 0
     
     # --- TRAINING HYPERPARAMETERS ---
-    batch_size: int = 32
+    batch_size: int = 8
+    accumulate_grad_batches: int = 4 # 8 * 4 = 32 effective batch size
     sequence_length: int = 513  # Must be multiple of chunk_len (16)
     steps: int = 10000
     learning_rate_init: float = 3e-4  # Initial learning rate

@@ -63,23 +63,27 @@ if __name__ == "__main__":
 
     # --- TRAINING LOOP ---
     for step in range(cfg.steps):
-        batch = get_batch()
-        x = batch[:, :-1]
-        y = batch[:, 1:]
-        
-        logits = model(x)
-        # ignore_index=0 ensures we don't calculate loss on the padding
-        loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
+        # New: Loop for accumulation
+        loss_accum = 0
+        for _ in range(cfg.accumulate_grad_batches):
+            batch = get_batch()
+            x, y = batch[:, :-1], batch[:, 1:]
+            
+            logits = model(x)
+            loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
+            
+            # Scale loss by accumulation steps
+            scaled_loss = loss / cfg.accumulate_grad_batches
+            scaled_loss.backward()
+            loss_accum += loss.item()
 
-        opt.zero_grad(set_to_none=True)
-        loss.backward()
         clip_grad_norm_(model.parameters(), cfg.grad_clip)
         opt.step()
         sch.step()
+        opt.zero_grad(set_to_none=True)
 
         if step % cfg.logging_steps == 0:
-            print(f"Step {step}/{cfg.steps} | Loss: {loss.item():.4f} | LR: {sch.get_last_lr()[0]:.2e}")
-            wandb.log({"loss": loss.item(), "lr": sch.get_last_lr()[0]}, step=step)
+            print(f"Step {step} | Loss: {loss_accum/cfg.accumulate_grad_batches:.4f}")
 
         # Checkpointing
         if step > 0 and step % 1000 == 0:
