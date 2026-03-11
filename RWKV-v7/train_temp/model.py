@@ -44,16 +44,22 @@ def RUN_CUDA_RWKV7g(q, w, k, v, a, b, head_size: int):
     B, T, HC = q.shape
     H = HC // head_size
     
-    # Cast everything to float32 specifically for the kernel
-    q = q.view(B, T, H, head_size).float()
-    w = w.view(B, T, H, head_size).float()
-    k = k.view(B, T, H, head_size).float()
-    v = v.view(B, T, H, head_size).float()
-    a = a.view(B, T, H, head_size).float()
-    b = b.view(B, T, H, head_size).float()
+    # 1. Use reshape instead of view for checkpointing stability
+    # 2. Ensure tensors are contiguous BEFORE casting to float
+    # 3. Handle the dtype conversion inside the function
     
-    # The output will come back as float32
-    return WindBackstepping.apply(w, q, k, v, a, b).view(B, T, HC)
+    q = q.reshape(B, T, H, head_size).float().contiguous()
+    w = w.reshape(B, T, H, head_size).float().contiguous()
+    k = k.reshape(B, T, H, head_size).float().contiguous()
+    v = v.reshape(B, T, H, head_size).float().contiguous()
+    a = a.reshape(B, T, H, head_size).float().contiguous()
+    b = b.reshape(B, T, H, head_size).float().contiguous()
+    
+    # Run the CUDA kernel
+    out = WindBackstepping.apply(w, q, k, v, a, b)
+    
+    # Return as a flattened (B, T, HC) tensor
+    return out.reshape(B, T, HC)
 
 
 class FFN(nn.Module):
@@ -168,7 +174,6 @@ class RWKV_Tmix_x070(MyModule):
             self.value.weight.data.uniform_(-0.5 / (C ** 0.5), 0.5 / (C ** 0.5))
             self.output.weight.data.zero_()
 
-    @MyFunction
     def forward(self, x, v_first):
         args_type = x.dtype # Save original type (bf16)
         B, T, C = x.size()
@@ -199,15 +204,15 @@ class RWKV_Tmix_x070(MyModule):
         kk = F.normalize(kk.view(B, T, H, -1), dim=-1, p=2.0).view(B, T, C)
         k = k * (1 + (a - 1) * self.k_a)
 
-        x_out = RUN_CUDA_RWKV7g(r, w, k, v, -kk, kk * a, self.head_size)
+        x = RUN_CUDA_RWKV7g(r, w, k, v, -kk, kk * a, self.head_size)
         
         # Cast back to original type (bf16) for the GroupNorm and residual
-        x_out = x_out.to(dtype=args_type)
-        x_out = self.ln_x(x_out.view(B * T, C)).view(B, T, C)
+        x = x.to(dtype=self.output.weight.dtype)
+        x = self.ln_x(x.reshape(B * T, C)).reshape(B, T, C)
 
         # Ensure everything added to the residual stream matches dtypes
         v_res = v.to(dtype=args_type) 
-        x_out = x_out + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v_res.view(B, T, H, -1)).view(B, T, C)
+        x_out = x + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v_res.view(B, T, H, -1)).view(B, T, C)
         
         return self.output(x_out * g), v_first
 
@@ -238,16 +243,25 @@ class RWKV7Model(nn.Module):
 
     def forward(self, x):
         x = self.embedding(x)
-        v_first = torch.empty_like(x)
+        # BF16 for the residual stream
+        x = x.to(torch.bfloat16)
+        v_first = torch.zeros_like(x)
         
         for layer in self.layers:
             if self.training:
-                # use_reentrant=False is the modern, safer way to checkpoint
-                x, v_first = torch_checkpoint(layer, x, v_first, use_reentrant=False)
+                # use_reentrant=False is mandatory here to handle multiple outputs
+                x, v_first = torch_checkpoint(
+                    layer, 
+                    x, 
+                    v_first, 
+                    use_reentrant=False,
+                    preserve_rng_state=True
+                )
             else:
                 x, v_first = layer(x, v_first)
 
-        return self.lm_head(self.ln_out(x))
+        x = self.ln_out(x)
+        return self.lm_head(x)
 
 def apply_custom_initialization(model, config):
     """
