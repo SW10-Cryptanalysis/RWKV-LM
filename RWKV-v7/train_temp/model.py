@@ -15,7 +15,8 @@ class WindBackstepping(torch.autograd.Function):
     @staticmethod
     def forward(ctx, w, q, k, v, z, b):
         B, T, H, C = w.shape
-        assert T % cfg.chunk_len == 0, f"sequence_length ({T}) must be divisible by chunk_len ({cfg.chunk_len})"
+        chunk_len = 16 
+        assert T % chunk_len == 0, f"Sequence length {T} must be divisible by {chunk_len}"
         assert all(i.dtype == torch.float32 for i in [w, q, k, v, z, b]), "All inputs must be float32"
         assert all(i.is_contiguous() for i in [w, q, k, v, z, b]), "All inputs must be contiguous"
         
@@ -80,7 +81,8 @@ class RWKV_Tmix_x070(MyModule):
     def __init__(self, layer_id):
         super().__init__()
         self.layer_id = layer_id
-        self.head_size = cfg.head_size
+        self.head_size = cfg.head_size  # Already here
+        self.chunk_len = cfg.chunk_len  # Add this line to store it locally
         self.n_head = cfg.dim_att // self.head_size
         assert cfg.dim_att % self.n_head == 0, "dim_att must be divisible by num_heads"
         
@@ -194,10 +196,11 @@ class RWKV_Tmix_x070(MyModule):
         g = torch.sigmoid(xg @ self.g1) @ self.g2
 
         kk = k * self.k_k
+        # Change cfg.head_size to self.head_size
         kk = F.normalize(kk.view(B, T, H, -1), dim=-1, p=2.0).view(B, T, C)
         k = k * (1 + (a - 1) * self.k_a)
 
-        x = RUN_CUDA_RWKV7g(r, w, k, v, -kk, kk * a, cfg.head_size)
+        x = RUN_CUDA_RWKV7g(r, w, k, v, -kk, kk * a, self.head_size) # FIX HERE
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
 
         x = x + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v.view(B, T, H, -1)).view(B, T, C)
