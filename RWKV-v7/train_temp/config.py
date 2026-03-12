@@ -17,7 +17,7 @@ class Config:
     n_embd: int = 768  # Hidden dimension
     n_layer: int = 6  # Number of transformer layers
     head_size: int = 64  # Size of each attention head
-    dim_att: int = 512  # Attention dimension (should equal n_embd)
+    dim_att: int = 768  # Attention dimension (should equal n_embd)
     
     # --- RWKV-7 KERNEL CONFIG ---
     chunk_len: int = 16  # Must divide sequence length evenly
