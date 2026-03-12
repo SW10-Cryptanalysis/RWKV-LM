@@ -99,7 +99,7 @@ if __name__ == "__main__":
             fps = steps_per_sec * cfg.batch_size # Frames (samples) per second
 
             print(f"Step {step}/{cfg.steps} | Loss: {loss.item():.4f} | "
-                f"TPS: {tokens_per_sec:.0f} | ETA: {timedelta(seconds=int(eta_seconds))}")
+                f"TPS: {tokens_per_sec:.0f} | ETA: {timedelta(seconds=int(eta_seconds))}", flush=True)
             
             wandb.log({
                 "loss": loss.item(), 
@@ -109,5 +109,5 @@ if __name__ == "__main__":
             }, step=step)
 
     total_time = time.time() - start_time
-    print(f"Training Complete! Total Time: {timedelta(seconds=int(total_time))}")
+    print(f"Training Complete! Total Time: {timedelta(seconds=int(total_time))}", flush=True)
     torch.save(model.state_dict(), "rwkv7_cipher_final.pth")
