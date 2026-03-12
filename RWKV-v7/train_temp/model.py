@@ -300,9 +300,9 @@ def get_model():
     Instantiates a RWKV-7 model configured for cipher decryption.
     
     Returns:
-        Initialized RWKV7Model on CUDA in float32 (required for kernel)
+        Initialized RWKV7Model on CUDA in float32 (required for RWKV-7 kernel)
     """
-    model = RWKV7Model().to('cuda').to(torch.bfloat16)
+    model = RWKV7Model().to('cuda').float()
     
     # Apply variance-preserving initialization
     apply_custom_initialization(model, cfg)
@@ -312,5 +312,6 @@ def get_model():
     print(f"RWKV-7 Model Initialized | Params: {num_params / 1e6:.1f}M")
     print(f"Config: {cfg.n_layer} layers, {cfg.n_embd} hidden size, {cfg.head_size} head size")
     print("Applied variance-preserving initialization (std=0.02, with depth scaling).")
+    print("⚠️  Model in float32 (required for RWKV-7 CUDA kernel)")
     
     return model
