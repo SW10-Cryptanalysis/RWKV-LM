@@ -2,78 +2,64 @@ import torch
 import torch.nn.functional as F
 from config import cfg
 from model import get_model
-from rwkv7_train_cipher import CipherDataset
+from datasets import load_from_disk
 from torch.utils.cpp_extension import load
 
-# 1. Load the Kernel (Required to run the model forward pass)
-load(
-    name="wind_backstepping", 
-    sources=['cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op_fp32.cpp'], 
-    is_python_module=False, 
-    verbose=False, 
-    extra_cuda_cflags=cfg.cuda_flags
-)
+# Load Kernel
+load(name="wind_backstepping", sources=['cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op_fp32.cpp'], is_python_module=False, verbose=False, extra_cuda_cflags=cfg.cuda_flags)
 
-# 2. Setup Device and Model
-device = 'cuda'
-# get_model() already handles .to('cuda').float() and architecture setup
-model = get_model() 
+def evaluate():
+    device = 'cuda'
+    model = get_model()
+    model.load_state_dict(torch.load("rwkv7_cipher_final.pth", map_location=device))
+    model.eval()
 
-# Load the weights
-checkpoint_path = "rwkv7_cipher_final.pth"
-try:
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-    print(f"--- Weights Loaded from {checkpoint_path} ---")
-except FileNotFoundError:
-    print(f"Error: {checkpoint_path} not found. Did the training finish?")
-    exit()
+    # Setup character mapping (match your other script)
+    chars = "abcdefghijklmnopqrstuvwxyz "
+    id_to_char = {i + cfg.char_offset: char for i, char in enumerate(chars)}
 
-model.eval()
+    val_ds = load_from_disk(str(cfg.tokenized_val_dir))
+    # Select a few samples to see variety
+    subset = val_ds.select(range(5))
 
-# 3. Grab a sample
-# Note: Using val_dir instead of training_dir is better for evaluation
-dataset = CipherDataset(cfg.tokenized_val_dir)
-input_ids = dataset[0].unsqueeze(0).to(device)
+    print(f"\n--- RWKV-7 DECRYPTION EVALUATION ---")
+    
+    with torch.no_grad():
+        for i, item in enumerate(subset):
+            # 1. CONSTRUCT THE PROMPT correctly
+            # We mimic the other script: [BOS] + [Cipher] + [SEP]
+            cipher_ids = [int(x) for x in item["ciphertext"].split()]
+            true_plain = item["plaintext"]
+            
+            input_ids = torch.tensor([cfg.bos_token_id] + cipher_ids + [cfg.sep_token_id], dtype=torch.long, device=device).unsqueeze(0)
+            
+            # 2. GENERATE
+            generated_ids = []
+            curr_ids = input_ids.clone()
 
-# 4. Generation Logic
-# Prompt length: We give it the cipher part and ask for the decryption
-prompt_length = 256 # Adjust based on where your cipher ends and plain text begins
-generated = input_ids[:, :prompt_length]
+            for _ in range(100): # Generate up to 100 tokens
+                T_curr = curr_ids.size(1)
+                
+                # RWKV-7 alignment fix (multiple of 16)
+                pad_needed = (16 - (T_curr % 16)) % 16
+                model_input = F.pad(curr_ids, (0, pad_needed), "constant", 0) if pad_needed > 0 else curr_ids
+                
+                logits = model(model_input)
+                next_token = torch.argmax(logits[:, T_curr - 1, :], dim=-1).unsqueeze(0)
+                
+                token_id = next_token.item()
+                if token_id == cfg.eos_token_id or token_id == 0:
+                    break
+                    
+                generated_ids.append(token_id)
+                curr_ids = torch.cat([curr_ids, next_token], dim=1)
 
-print(f"--- STARTING GENERATION ---")
-with torch.no_grad():
-    # Generate up to 256 new tokens
-    for i in range(256):
-        T_current = generated.size(1)
-        
-        # The RWKV-7 kernel requires input length to be a multiple of chunk_len (16)
-        pad_needed = (16 - (T_current % 16)) % 16
-        if pad_needed > 0:
-            model_input = F.pad(generated, (0, pad_needed), "constant", cfg.pad_token_id)
-        else:
-            model_input = generated
-        
-        # Forward pass
-        logits = model(model_input)
-        
-        # We grab the logit for the last ACTUAL token before padding
-        # Shape: (Batch, Sequence, Vocab) -> we want index T_current - 1
-        next_token_logits = logits[:, T_current - 1, :]
-        next_token = torch.argmax(next_token_logits, dim=-1).unsqueeze(0)
-        
-        generated = torch.cat([generated, next_token], dim=1)
-        
-        # Stop if we hit the pad token or a specific end-of-text token
-        if next_token.item() == cfg.pad_token_id:
-            break
+            # 3. DECODE
+            pred_plain = "".join([id_to_char.get(idx, "?") for idx in generated_ids])
+            
+            print(f"\nSample {i}:")
+            print(f"  True Plain: {true_plain[:50]}...")
+            print(f"  Pred Plain: {pred_plain}")
 
-# 5. Decode results
-def simple_decode(tokens):
-    # Filters out non-printable chars for a cleaner console view
-    return "".join([chr(t) if 32 <= t <= 126 else f"<{t}>" for t in tokens])
-
-print(f"\nPROMPT (Input IDs {prompt_length} tokens):")
-print(simple_decode(generated[0, :prompt_length].tolist()))
-
-print(f"\nMODEL COMPLETION (Decryption Attempt):")
-print(simple_decode(generated[0, prompt_length:].tolist()))
+if __name__ == "__main__":
+    evaluate()

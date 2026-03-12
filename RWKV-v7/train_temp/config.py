@@ -24,6 +24,11 @@ class Config:
     
     # --- TOKENIZATION ---
     pad_token_id: int = 0
+    sep_token_id: int = 2495
+    space_token_id: int = 2496
+    bos_token_id: int = 2497
+    eos_token_id: int = 2498
+    char_offset: int = 2499
     
     # --- TRAINING HYPERPARAMETERS ---
     batch_size: int = 16
