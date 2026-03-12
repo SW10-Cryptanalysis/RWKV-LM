@@ -86,43 +86,43 @@ if __name__ == "__main__":
         sch.step()
 
         for step in range(cfg.steps):
-        step_start = time.time() # Track individual step for more granular logging
-        
-        batch = get_batch()
-        x = batch[:, :-1]
-        y = batch[:, 1:]
-        
-        logits = model(x)
-        loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
-
-        opt.zero_grad(set_to_none=True)
-        loss.backward()
-        clip_grad_norm_(model.parameters(), cfg.grad_clip)
-        opt.step()
-        sch.step()
-
-        if step % cfg.logging_steps == 0 and step > 0:
-            # Time Calculations
-            elapsed = time.time() - start_time
-            steps_per_sec = step / elapsed
-            remaining_steps = cfg.steps - step
-            eta_seconds = remaining_steps / steps_per_sec
+            step_start = time.time() # Track individual step for more granular logging
             
-            # Throughput (Tokens per second)
-            # tokens = batch_size * sequence_length
-            tokens_per_sec = (step * cfg.batch_size * cfg.sequence_length) / elapsed
-
-            fps = steps_per_sec * cfg.batch_size # Frames (samples) per second
-
-            print(f"Step {step}/{cfg.steps} | Loss: {loss.item():.4f} | "
-                  f"TPS: {tokens_per_sec:.0f} | ETA: {timedelta(seconds=int(eta_seconds))}")
+            batch = get_batch()
+            x = batch[:, :-1]
+            y = batch[:, 1:]
             
-            wandb.log({
-                "loss": loss.item(), 
-                "lr": sch.get_last_lr()[0],
-                "tokens_per_sec": tokens_per_sec,
-                "fps": fps
-            }, step=step)
+            logits = model(x)
+            loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
+
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            clip_grad_norm_(model.parameters(), cfg.grad_clip)
+            opt.step()
+            sch.step()
+
+            if step % cfg.logging_steps == 0 and step > 0:
+                # Time Calculations
+                elapsed = time.time() - start_time
+                steps_per_sec = step / elapsed
+                remaining_steps = cfg.steps - step
+                eta_seconds = remaining_steps / steps_per_sec
+                
+                # Throughput (Tokens per second)
+                # tokens = batch_size * sequence_length
+                tokens_per_sec = (step * cfg.batch_size * cfg.sequence_length) / elapsed
+
+                fps = steps_per_sec * cfg.batch_size # Frames (samples) per second
+
+                print(f"Step {step}/{cfg.steps} | Loss: {loss.item():.4f} | "
+                    f"TPS: {tokens_per_sec:.0f} | ETA: {timedelta(seconds=int(eta_seconds))}")
+                
+                wandb.log({
+                    "loss": loss.item(), 
+                    "lr": sch.get_last_lr()[0],
+                    "tokens_per_sec": tokens_per_sec,
+                    "fps": fps
+                }, step=step)
 
     total_time = time.time() - start_time
     print(f"Training Complete! Total Time: {timedelta(seconds=int(total_time))}")
