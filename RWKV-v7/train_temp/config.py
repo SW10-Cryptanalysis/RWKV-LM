@@ -27,7 +27,7 @@ class Config:
     
     # --- TRAINING HYPERPARAMETERS ---
     batch_size: int = 8
-    sequence_length: int = 513  # Must be multiple of chunk_len (16)
+    sequence_length: int = 512  # Must be multiple of chunk_len (16)
     steps: int = 10000
     learning_rate_init: float = 3e-4  # Initial learning rate
     learning_rate_final: float = 1e-5  # Final learning rate (cosine decay)

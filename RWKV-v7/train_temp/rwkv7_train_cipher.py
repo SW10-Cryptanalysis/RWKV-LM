@@ -18,6 +18,7 @@ load(name="wind_backstepping", sources=[f'cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op
 class CipherDataset(torch.utils.data.Dataset):
     def __init__(self, directory_path):
         self.hf_dataset = load_from_disk(str(directory_path))
+        self.target_len = cfg.sequence_length + 1
     def __len__(self):
         return len(self.hf_dataset)
     def __getitem__(self, idx):
