@@ -175,7 +175,6 @@ class RWKV_Tmix_x070(MyModule):
             self.output.weight.data.zero_()
 
     def forward(self, x, v_first):
-        args_type = x.dtype # Save original type (bf16)
         B, T, C = x.size()
         H = self.n_head
         xx = self.time_shift(x) - x
@@ -205,14 +204,9 @@ class RWKV_Tmix_x070(MyModule):
         k = k * (1 + (a - 1) * self.k_a)
 
         x = RUN_CUDA_RWKV7g(r, w, k, v, -kk, kk * a, self.head_size)
-        
-        # Cast back to original type (bf16) for the GroupNorm and residual
-        x = x.to(dtype=self.output.weight.dtype)
         x = self.ln_x(x.reshape(B * T, C)).reshape(B, T, C)
 
-        # Ensure everything added to the residual stream matches dtypes
-        v_res = v.to(dtype=args_type) 
-        x_out = x + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v_res.view(B, T, H, -1)).view(B, T, C)
+        x_out = x + ((r.view(B, T, H, -1) * k.view(B, T, H, -1) * self.r_k).sum(dim=-1, keepdim=True) * v.view(B, T, H, -1)).view(B, T, C)
         
         return self.output(x_out * g), v_first
 
@@ -243,8 +237,6 @@ class RWKV7Model(nn.Module):
 
     def forward(self, x):
         x = self.embedding(x)
-        # BF16 for the residual stream
-        x = x.to(torch.bfloat16)
         v_first = torch.zeros_like(x)
         
         for layer in self.layers:
