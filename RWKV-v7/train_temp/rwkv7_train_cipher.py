@@ -23,10 +23,10 @@ class CipherDataset(torch.utils.data.Dataset):
         return len(self.hf_dataset)
     def __getitem__(self, idx):
         ids = self.hf_dataset[idx]["input_ids"]
-        if len(ids) > cfg.sequence_length:
-            ids = ids[:cfg.sequence_length]
+        if len(ids) > self.target_len:
+            ids = ids[:self.target_len]
         else:
-            ids = ids + [cfg.pad_token_id] * (cfg.sequence_length - len(ids))
+            ids = ids + [cfg.pad_token_id] * (self.target_len - len(ids))
         return torch.tensor(ids, dtype=torch.long)
 
 dataset = CipherDataset(cfg.tokenized_training_dir)
