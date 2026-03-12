@@ -1,4 +1,4 @@
-import random, torch, os, datetime
+import random, torch, os, datetime, time
 import wandb
 from torch import nn
 import torch.nn.functional as F
@@ -62,8 +62,13 @@ if __name__ == "__main__":
 
     wandb.init(project="RWKV-7-Cipher", name=f"Goose-C{cfg.n_embd}-L{cfg.n_layer}-{datetime.datetime.now().strftime('%H%M')}")
 
+    # --- TIMING ---
+    start_time = time.time()
+    step_times = []
+
     # --- TRAINING LOOP ---
     for step in range(cfg.steps):
+        step_start = time.time()
         # New: Loop for accumulation
         loss_accum = 0
         for _ in range(cfg.accumulate_grad_batches):
@@ -83,8 +88,26 @@ if __name__ == "__main__":
         sch.step()
         opt.zero_grad(set_to_none=True)
 
+        # --- TIMING & LOGGING ---
+        step_time = time.time() - step_start
+        step_times.append(step_time)
+        
+        # Keep rolling average of last 10 steps
+        avg_step_time = sum(step_times[-10:]) / len(step_times[-10:])
+        steps_remaining = cfg.steps - step - 1
+        eta_seconds = steps_remaining * avg_step_time
+        eta_str = str(datetime.timedelta(seconds=int(eta_seconds)))
+
         if step % cfg.logging_steps == 0:
-            print(f"Step {step} | Loss: {loss_accum/cfg.accumulate_grad_batches:.4f}")
+            elapsed = time.time() - start_time
+            elapsed_str = str(datetime.timedelta(seconds=int(elapsed)))
+            print(f"Step {step:5d}/{cfg.steps} | Loss: {loss_accum/cfg.accumulate_grad_batches:.4f} | " 
+                  f"Time: {elapsed_str} | ETA: {eta_str} | Avg Speed: {avg_step_time:.2f}s/step")
+            wandb.log({
+                "loss": loss_accum/cfg.accumulate_grad_batches, 
+                "lr": sch.get_last_lr()[0],
+                "step_time": avg_step_time,
+            }, step=step)
 
         # Checkpointing
         if step > 0 and step % 1000 == 0:
