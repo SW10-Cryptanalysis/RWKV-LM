@@ -14,8 +14,8 @@ TOKENIZED_VALIDATION_DIR = DATA_DIR / "tokenized_normal" / "Validation"
 class Config:
     # --- ARCHITECTURE ---
     vocab_size: int = 2560  # Matches Mistral tokenizer
-    n_embd: int = 512  # Hidden dimension
-    n_layer: int = 2  # Number of transformer layers
+    n_embd: int = 768  # Hidden dimension
+    n_layer: int = 6  # Number of transformer layers
     head_size: int = 64  # Size of each attention head
     dim_att: int = 512  # Attention dimension (should equal n_embd)
     
@@ -26,10 +26,10 @@ class Config:
     pad_token_id: int = 0
     
     # --- TRAINING HYPERPARAMETERS ---
-    batch_size: int = 8
+    batch_size: int = 16
     sequence_length: int = 512  # Must be multiple of chunk_len (16)
-    steps: int = 10000
-    learning_rate_init: float = 3e-4  # Initial learning rate
+    steps: int = 20000
+    learning_rate_init: float = 6e-4  # Initial learning rate
     learning_rate_final: float = 1e-5  # Final learning rate (cosine decay)
     
     # --- GRADIENT OPTIMIZATION ---
