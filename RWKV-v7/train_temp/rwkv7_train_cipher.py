@@ -43,11 +43,15 @@ def get_batch():
         data_iter = iter(dataloader)
         return next(data_iter).to('cuda')
 
-if __name__ == "__main__":
-    # --- MODEL INITIALIZATION ---
-    model = get_model()
+# ... (Keep imports and Dataset class the same) ...
 
-    # Setup Decay Groups
+if __name__ == "__main__":
+    model = get_model()
+    # Optional: print parameter count to confirm the ~130M size
+    model_size = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Model Size: {model_size/1e6:.1f}M parameters")
+
+    # Setup Optimizer & Scheduler (Keep your existing logic)
     decay, no_decay = [], []
     for n, p in model.named_parameters():
         if not p.requires_grad: continue
@@ -62,22 +66,26 @@ if __name__ == "__main__":
     ], lr=cfg.learning_rate_init)
     sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.steps, eta_min=cfg.learning_rate_final)
 
+    # Validation DataLoader
+    val_dataset = CipherDataset(cfg.tokenized_val_dir)
+    val_loader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=2)
+
     wandb.init(project="RWKV-7-Cipher", name=f"Goose-C{cfg.n_embd}-L{cfg.n_layer}-{datetime.datetime.now().strftime('%H%M')}")
 
     print(f"Starting training for {cfg.steps} steps...")
     start_time = time.time()
 
     # --- TRAINING LOOP ---
-
-    for step in range(cfg.steps):
-        step_start = time.time() # Track individual step for more granular logging
-        
+    for step in range(1, cfg.steps + 1): # Start at 1 for cleaner modulo math
+        model.train()
         batch = get_batch()
         x = batch[:, :-1]
         y = batch[:, 1:]
         
-        logits = model(x)
-        loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
+        # Use Autocast for BF16 speedup on L4
+        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+            logits = model(x)
+            loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -85,29 +93,41 @@ if __name__ == "__main__":
         opt.step()
         sch.step()
 
-        if step % cfg.logging_steps == 0 and step > 0:
-            # Time Calculations
+        # 1. Periodic Logging
+        if step % cfg.logging_steps == 0:
             elapsed = time.time() - start_time
             steps_per_sec = step / elapsed
-            remaining_steps = cfg.steps - step
-            eta_seconds = remaining_steps / steps_per_sec
-            
-            # Throughput (Tokens per second)
-            # tokens = batch_size * sequence_length
             tokens_per_sec = (step * cfg.batch_size * cfg.sequence_length) / elapsed
+            eta = timedelta(seconds=int((cfg.steps - step) / steps_per_sec))
 
-            fps = steps_per_sec * cfg.batch_size # Frames (samples) per second
+            print(f"Step {step}/{cfg.steps} | Loss: {loss.item():.4f} | TPS: {tokens_per_sec:.0f} | ETA: {eta}", flush=True)
+            wandb.log({"loss": loss.item(), "lr": sch.get_last_lr()[0], "tps": tokens_per_sec}, step=step)
 
-            print(f"Step {step}/{cfg.steps} | Loss: {loss.item():.4f} | "
-                f"TPS: {tokens_per_sec:.0f} | ETA: {timedelta(seconds=int(eta_seconds))}", flush=True)
+        # 2. Validation Check (Every 1000 steps)
+        if step % 1000 == 0:
+            model.eval()
+            val_loss = 0
+            with torch.no_grad():
+                # Just take 10 batches for a quick sanity check
+                for i, v_batch in enumerate(val_loader):
+                    if i > 10: break
+                    v_batch = v_batch.to('cuda')
+                    vx, vy = v_batch[:, :-1], v_batch[:, 1:]
+                    with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+                        v_logits = model(vx)
+                        v_loss = F.cross_entropy(v_logits.reshape(-1, cfg.vocab_size), vy.reshape(-1), ignore_index=cfg.pad_token_id)
+                    val_loss += v_loss.item()
             
-            wandb.log({
-                "loss": loss.item(), 
-                "lr": sch.get_last_lr()[0],
-                "tokens_per_sec": tokens_per_sec,
-                "fps": fps
-            }, step=step)
+            avg_val_loss = val_loss / 11
+            print(f"--- VALIDATION | Step {step} | Val Loss: {avg_val_loss:.4f} ---", flush=True)
+            wandb.log({"val_loss": avg_val_loss}, step=step)
 
-    total_time = time.time() - start_time
-    print(f"Training Complete! Total Time: {timedelta(seconds=int(total_time))}", flush=True)
+        # 3. Checkpointing (Every 5000 steps)
+        if step % 5000 == 0:
+            ckpt_name = f"rwkv7_step_{step}.pth"
+            torch.save(model.state_dict(), ckpt_name)
+            print(f"Saved checkpoint: {ckpt_name}", flush=True)
+
+    # Final Save
     torch.save(model.state_dict(), "rwkv7_cipher_final.pth")
+    wandb.finish()

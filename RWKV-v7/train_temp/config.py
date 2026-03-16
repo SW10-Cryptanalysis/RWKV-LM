@@ -17,7 +17,6 @@ class Config:
     n_embd: int = 1024  # Hidden dimension
     n_layer: int = 12  # Number of transformer layers
     head_size: int = 64  # Size of each attention head
-    dim_att: int = 768  # Attention dimension (should equal n_embd)
     
     # --- RWKV-7 KERNEL CONFIG ---
     chunk_len: int = 16  # Must divide sequence length evenly
@@ -52,11 +51,20 @@ class Config:
     
     # --- CUDA KERNEL FLAGS ---
     cuda_flags: list = None
+
+    @property
+    def dim_att(self) -> int:
+        return self.n_embd
+
+    @property
+    def dim_ffn(self) -> int:
+        # 3.5x is standard for RWKV-7, but 4x is safer for complex logic
+        return int(self.n_embd * 3.5)
     
     def __post_init__(self):
         """Validate configuration and set derived values."""
-        assert self.dim_att == self.n_embd, "dim_att must equal n_embd"
-        assert self.sequence_length % self.chunk_len == 0, f"sequence_length ({self.sequence_length}) must be divisible by chunk_len ({self.chunk_len})"
+        assert self.sequence_length % self.chunk_len == 0, \
+            f"sequence_length ({self.sequence_length}) must be divisible by chunk_len ({self.chunk_len})"
         
         # Set cuda flags if not provided
         if self.cuda_flags is None:
