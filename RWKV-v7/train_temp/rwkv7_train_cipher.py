@@ -112,9 +112,9 @@ if __name__ == "__main__":
                     if i > 10: break
                     v_batch = v_batch.to('cuda')
                     vx, vy = v_batch[:, :-1], v_batch[:, 1:]
-                    with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
-                        v_logits = model(vx)
-                        v_loss = F.cross_entropy(v_logits.reshape(-1, cfg.vocab_size), vy.reshape(-1), ignore_index=cfg.pad_token_id)
+                    
+                    v_logits = model(vx)
+                    v_loss = F.cross_entropy(v_logits.reshape(-1, cfg.vocab_size), vy.reshape(-1), ignore_index=cfg.pad_token_id)
                     val_loss += v_loss.item()
             
             avg_val_loss = val_loss / 11
