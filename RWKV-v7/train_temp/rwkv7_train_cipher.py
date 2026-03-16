@@ -83,9 +83,8 @@ if __name__ == "__main__":
         y = batch[:, 1:]
         
         # Use Autocast for BF16 speedup on L4
-        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
-            logits = model(x)
-            loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
+        logits = model(x)
+        loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
