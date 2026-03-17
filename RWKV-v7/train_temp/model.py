@@ -208,54 +208,45 @@ class RWKV_Tmix_x070(MyModule):
         return x, v_first
 
 
+class Block(nn.Module):
+    def __init__(self, layer_id):
+        super().__init__()
+        self.layer_id = layer_id
+        C = cfg.n_embd
+        self.ln1 = nn.LayerNorm(C)
+        self.ln2 = nn.LayerNorm(C)
+        self.att = RWKV_Tmix_x070(layer_id)
+        self.ffn = FFN(C)
+
+    def forward(self, x, v_first):
+        # Time-Mixing (Attention)
+        xx, v_first = self.att(self.ln1(x), v_first)
+        x = x + xx
+        # Feed-Forward
+        x = x + self.ffn(self.ln2(x))
+        return x, v_first
+
 class RWKV7Model(nn.Module):
-    """
-    RWKV-7 language model for sequence-to-sequence cipher decryption.
-    Architecture: 2-layer transformer with time-mixing attention and FFN blocks.
-    """
     def __init__(self):
         super().__init__()
-        C = cfg.n_embd
-
-        self.embedding = nn.Embedding(cfg.vocab_size, C)
+        self.embedding = nn.Embedding(cfg.vocab_size, cfg.n_embd)
         
-        # Layer 1
-        self.ln1a = nn.LayerNorm(C)
-        self.ln1b = nn.LayerNorm(C)
-        self.rwkv1 = RWKV_Tmix_x070(0)
-        self.ffn1 = FFN(C)
-
-        # Layer 2
-        self.ln2a = nn.LayerNorm(C)
-        self.ln2b = nn.LayerNorm(C)
-        self.rwkv2 = RWKV_Tmix_x070(1)
-        self.ffn2 = FFN(C)
-
-        # Output projection
-        self.ln_out = nn.LayerNorm(C)
-        self.lm_head = nn.Linear(C, cfg.vocab_size)
+        # Dynamically create the number of layers specified in cfg
+        self.blocks = nn.ModuleList([Block(i) for i in range(cfg.n_layer)])
+        
+        self.ln_out = nn.LayerNorm(cfg.n_embd)
+        self.lm_head = nn.Linear(cfg.n_embd, cfg.vocab_size)
 
     def forward(self, x):
-        """
-        Args:
-            x: token ids of shape (B, T)
-        Returns:
-            logits of shape (B, T, vocab_size)
-        """
         x = self.embedding(x)
-        v_first = None
         
-        # Layer 1
-        xx, v_first = self.rwkv1(self.ln1a(x), torch.empty_like(x))
-        x = x + xx
-        x = x + self.ffn1(self.ln1b(x))
+        # In RWKV-7, the first layer needs an 'empty' v_first to start.
+        # We pass a dummy tensor that the first layer will ignore/overwrite.
+        v_first = torch.empty_like(x) 
         
-        # Layer 2
-        xx, v_first = self.rwkv2(self.ln2a(x), v_first)
-        x = x + xx
-        x = x + self.ffn2(self.ln2b(x))
-
-        # Output projection
+        for block in self.blocks:
+            x, v_first = block(x, v_first)
+            
         x = self.lm_head(self.ln_out(x))
         return x
 
