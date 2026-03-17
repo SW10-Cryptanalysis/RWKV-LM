@@ -75,8 +75,44 @@ if __name__ == "__main__":
     print(f"Starting training for {cfg.steps} steps...")
     start_time = time.time()
 
-    # --- TRAINING LOOP ---
-    for step in range(1, cfg.steps + 1): # Start at 1 for cleaner modulo math
+    # --- CHECKPOINT LOADING ---
+    import glob
+    import re
+
+    # Look for files matching the pattern rwkv7_step_*.pth
+    ckpt_files = glob.glob("rwkv7_step_*.pth")
+    start_step = 1
+
+    if ckpt_files:
+        # Extract step numbers and find the latest one
+        steps_found = [int(re.findall(r'\d+', f)[0]) for f in ckpt_files]
+        latest_step = max(steps_found)
+        latest_ckpt = f"rwkv7_step_{latest_step}.pth"
+
+        print(f"Found checkpoint! Loading: {latest_ckpt}")
+        model.load_state_dict(torch.load(latest_ckpt, map_location='cuda'))
+        
+        start_step = latest_step + 1
+        
+        # Fast-forward the scheduler to the correct learning rate
+        # This is better than a loop; it tells the scheduler where we are in the 'T_max'
+        for _ in range(latest_step):
+            sch.step()
+            
+        print(f"Resuming from step {start_step} at LR: {sch.get_last_lr()[0]:.2e}")
+    else:
+        print("No checkpoints found. Starting from scratch.")
+
+    # --- UPDATED WANDB INIT ---
+    wandb.init(
+        project="RWKV-7-Cipher", 
+        name=f"Goose-C{cfg.n_embd}-L{cfg.n_layer}",
+        resume="allow"  # This joins the logs together if you restart the same run
+    )
+
+    # --- UPDATED TRAINING LOOP ---
+    # Change the range to start from start_step
+    for step in range(start_step, cfg.steps + 1):
         model.train()
         batch = get_batch()
         x = batch[:, :-1]
