@@ -43,8 +43,6 @@ def get_batch():
         data_iter = iter(dataloader)
         return next(data_iter).to('cuda')
 
-# ... (Keep imports and Dataset class the same) ...
-
 if __name__ == "__main__":
     model = get_model()
     # Optional: print parameter count to confirm the ~130M size
@@ -84,22 +82,28 @@ if __name__ == "__main__":
     start_step = 1
 
     if ckpt_files:
-        # Extract step numbers and find the latest one
-        steps_found = [int(re.findall(r'\d+', f)[0]) for f in ckpt_files]
-        latest_step = max(steps_found)
-        latest_ckpt = f"rwkv7_step_{latest_step}.pth"
+        # We use a more specific regex to capture the digits AFTER 'step_'
+        steps_found = []
+        for f in ckpt_files:
+            match = re.search(r'step_(\d+)', f)
+            if match:
+                steps_found.append(int(match.group(1)))
 
-        print(f"Found checkpoint! Loading: {latest_ckpt}")
-        model.load_state_dict(torch.load(latest_ckpt, map_location='cuda'))
-        
-        start_step = latest_step + 1
-        
-        # Fast-forward the scheduler to the correct learning rate
-        # This is better than a loop; it tells the scheduler where we are in the 'T_max'
-        for _ in range(latest_step):
-            sch.step()
+        if steps_found:
+            latest_step = max(steps_found)
+            latest_ckpt = f"rwkv7_step_{latest_step}.pth"
+
+            print(f"Found checkpoint! Loading: {latest_ckpt}")
+            # Use weights_only=True for extra safety if your torch version supports it
+            model.load_state_dict(torch.load(latest_ckpt, map_location='cuda'))
             
-        print(f"Resuming from step {start_step} at LR: {sch.get_last_lr()[0]:.2e}")
+            start_step = latest_step + 1
+            
+            print(f"Fast-forwarding scheduler to step {start_step}...")
+            for _ in range(latest_step):
+                sch.step()
+                
+            print(f"Resuming from step {start_step} at LR: {sch.get_last_lr()[0]:.2e}")
     else:
         print("No checkpoints found. Starting from scratch.")
 
