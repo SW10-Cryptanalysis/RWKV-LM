@@ -36,90 +36,43 @@ def decode_prediction(ids: list[int]) -> str:
 
 def evaluate():
     device = 'cuda'
-    
-    # 1. Load Model
     model = get_model()
-    checkpoint = "rwkv7_cipher_final.pth"
-    if Path(checkpoint).exists():
-        model.load_state_dict(torch.load(checkpoint, map_location=device))
-        logger.info(f"Loaded weights from {checkpoint}")
-    else:
-        logger.error(f"Could not find {checkpoint}")
-        return
+    model.load_state_dict(torch.load("rwkv7_cipher_final.pth", map_location=device))
     model.eval()
 
-    # 2. Load Test Data (Arrow shards)
-    test_path = Path(cfg.tokenized_training_dir).parent / "Test" # Adjust if different
-    logger.info(f"Loading test data from {test_path}...")
-    test_ds = load_from_disk(str(test_path))
+    test_ds = load_from_disk(str(Path(cfg.tokenized_training_dir).parent / "Test"))
+    subset = test_ds.select(range(5)) # Just check 5 samples
 
-    num_samples = min(50, len(test_ds))
-    total_ser = 0.0
-
-    logger.info(f"Starting evaluation on {num_samples} samples...")
-
-    for i in range(num_samples):
-        item = test_ds[i]
-        all_ids = item["input_ids"]
-
-        # 3. Find SEP token to split Cipher from Plain
-        try:
+    print(f"\n--- DEBUGGING GENERATION ---")
+    
+    with torch.no_grad():
+        for i, item in enumerate(subset):
+            all_ids = item["input_ids"]
             sep_idx = all_ids.index(cfg.sep_token_id)
-            input_ids = all_ids[: sep_idx + 1] 
-            true_ids = all_ids[sep_idx + 1 :]
-            true_plain = decode_prediction(true_ids)
-        except ValueError:
-            logger.warning(f"Sample {i} missing SEP token. Skipping.")
-            continue
-
-        # 4. Generate Autoregressively
-        curr_tensor = torch.tensor([input_ids], dtype=torch.long, device=device)
-        generated_ids = []
-        
-        with torch.no_grad():
-            for _ in range(128): # max_new_tokens
-                # RWKV-7 CUDA Alignment: Length must be multiple of 16
-                T_curr = curr_tensor.size(1)
-                pad_needed = (16 - (T_curr % 16)) % 16
-                
-                if pad_needed > 0:
-                    model_input = F.pad(curr_tensor, (0, pad_needed), "constant", 0)
-                else:
-                    model_input = curr_tensor
-
-                logits = model(model_input)
-                
-                # Get last non-padded logit
-                next_token = torch.argmax(logits[0, T_curr - 1, :], dim=-1)
-                
-                token_id = next_token.item()
-                if token_id == cfg.eos_token_id or token_id == cfg.pad_token_id:
-                    break
-                
-                generated_ids.append(token_id)
-                curr_tensor = torch.cat([curr_tensor, next_token.unsqueeze(0).unsqueeze(0)], dim=1)
-
-        # 5. Calculate SER
-        pred_plain = decode_prediction(generated_ids)
-        
-        # Levenshtein logic from your Llama script
-        min_len = min(len(true_plain), len(pred_plain))
-        if min_len > 0:
-            dist = Levenshtein.distance(true_plain[:min_len], pred_plain[:min_len])
-            ser = dist / min_len
-            total_ser += ser
+            input_ids = all_ids[: sep_idx + 1]
             
-            if i % 5 == 0:
-                logger.info(f"Sample {i} | SER: {ser:.4f}")
-                logger.info(f"  True: {true_plain[:60]}")
-                logger.info(f"  Pred: {pred_plain[:60]}")
-        else:
-            # Handle cases where model generates nothing
-            total_ser += 1.0
+            curr_tensor = torch.tensor([input_ids], dtype=torch.long, device=device)
+            
+            # --- STEP 1 LOGITS ---
+            T_curr = curr_tensor.size(1)
+            pad_needed = (16 - (T_curr % 16)) % 16
+            model_input = F.pad(curr_tensor, (0, pad_needed), "constant", 0) if pad_needed > 0 else curr_tensor
+            
+            logits = model(model_input)
+            last_logits = logits[0, T_curr - 1, :]
+            
+            # Get Top 5 predictions
+            probs = F.softmax(last_logits, dim=-1)
+            top_probs, top_ids = torch.topk(probs, 5)
 
-    avg_ser = total_ser / num_samples
-    logger.info("=" * 30)
-    logger.info(f"FINAL AVERAGE SYMBOL ERROR RATE (SER): {avg_ser:.4f}")
+            print(f"\nSample {i} (Prompt length: {T_curr})")
+            print(f"  Top 5 predicted IDs after SEP:")
+            for p, idx in zip(top_probs, top_ids):
+                print(f"    ID: {idx.item():<5} | Prob: {p.item():.4f}")
+
+            # See what argmax chose
+            token_id = torch.argmax(last_logits).item()
+            print(f"  Model chose: {token_id} (EOS is {cfg.eos_token_id}, PAD is {cfg.pad_token_id})")
 
 if __name__ == "__main__":
     evaluate()
