@@ -50,6 +50,8 @@ def evaluate():
             all_ids = item["input_ids"]
             sep_idx = all_ids.index(cfg.sep_token_id)
             input_ids = all_ids[: sep_idx + 1]
+            if len(input_ids) > cfg.sequence_length:
+                input_ids = input_ids[-(cfg.sequence_length):]
             
             curr_tensor = torch.tensor([input_ids], dtype=torch.long, device=device)
             
