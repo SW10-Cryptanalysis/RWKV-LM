@@ -1,0 +1,25 @@
+name: PR Notifications
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send embed notification to Discord
+        if: ${{ github.event.pull_request.draft == false }}
+        uses: Ilshidur/action-discord@master
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            📢 **New Pull Request Ready for Review!**
+            • **Repository:** ${{ github.repository }}
+            • **Title:** ${{ github.event.pull_request.title }}
+            • **Author:** ${{ github.event.pull_request.user.login }}
+            • **Branch:** `${{ github.event.pull_request.head.ref }}`
+            • **Base:** `${{ github.event.pull_request.base.ref }}`
+
+            🔗 ${{ github.event.pull_request.html_url }}
