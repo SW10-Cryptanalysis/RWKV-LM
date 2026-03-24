@@ -1,5 +1,7 @@
 import random, torch, os, datetime
 import time
+import glob
+import re
 from datetime import timedelta
 import wandb
 from torch import nn
@@ -95,9 +97,6 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # --- CHECKPOINT LOADING ---
-    import glob
-    import re
-
     # Look for files matching the pattern rwkv7_step_*.pth
     ckpt_files = glob.glob("rwkv7_step_*.pth")
     start_step = 1
