@@ -9,6 +9,10 @@ from torch.utils.cpp_extension import load
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
 
+torch.backends.cuda.matmul.fp32_precision = "tf32"
+torch.backends.cudnn.conv.fp32_precision = "tf32"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 from config import cfg
 from model import get_model
 
@@ -35,6 +39,23 @@ dataset = CipherDataset(cfg.tokenized_training_dir)
 dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=4, pin_memory=True)
 data_iter = iter(dataloader)
 
+def compute_ser(logits, labels, pad_id):
+    # Logits: [B, T, V] -> [B, T]
+    preds = logits.argmax(dim=-1)
+    
+    # Mistral logic: shift to align (standard for causal LM)
+    # The model predicts token t+1 at position t
+    preds = preds[:, :-1]
+    labels = labels[:, 1:]
+    
+    mask = (labels != pad_id)
+    correct = (preds == labels) & mask
+    
+    total_correct = correct.sum().item()
+    total_symbols = mask.sum().item()
+    
+    return 1.0 - (total_correct / total_symbols) if total_symbols > 0 else 0.0
+
 def get_batch():
     global data_iter
     try:
@@ -45,6 +66,7 @@ def get_batch():
 
 if __name__ == "__main__":
     model = get_model()
+    model = torch.compile(model)
     model_size = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model Size: {model_size/1e6:.1f}M parameters")
 
@@ -60,7 +82,7 @@ if __name__ == "__main__":
     opt = torch.optim.AdamW([
         {"params": decay, "weight_decay": cfg.weight_decay},
         {"params": no_decay, "weight_decay": 0.0},
-    ], lr=cfg.learning_rate_init)
+    ], lr=cfg.learning_rate_init, fused=True)
     sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=cfg.steps, eta_min=cfg.learning_rate_final)
 
     # Validation DataLoader
@@ -122,8 +144,12 @@ if __name__ == "__main__":
         y = batch[:, 1:]
         
         # Use Autocast for BF16 speedup on L4
-        logits = model(x)
-        loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
+        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+            logits = model(x)
+            # Ensure the loss calculation handles the logit scale correctly
+            loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size).float(), 
+                                   y.reshape(-1), 
+                                   ignore_index=cfg.pad_token_id)
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -145,8 +171,8 @@ if __name__ == "__main__":
         if step % 1000 == 0:
             model.eval()
             val_loss = 0
-            with torch.no_grad():
-                # Just take 10 batches for a quick sanity check
+            val_ser = 0
+            with torch.no_grad(), torch.cuda.amp.autocast(dtype=torch.bfloat16): # H100 Speed
                 for i, v_batch in enumerate(val_loader):
                     if i > 10: break
                     v_batch = v_batch.to('cuda')
@@ -154,11 +180,12 @@ if __name__ == "__main__":
                     
                     v_logits = model(vx)
                     v_loss = F.cross_entropy(v_logits.reshape(-1, cfg.vocab_size), vy.reshape(-1), ignore_index=cfg.pad_token_id)
+                    
                     val_loss += v_loss.item()
-            
-            avg_val_loss = val_loss / 11
-            print(f"--- VALIDATION | Step {step} | Val Loss: {avg_val_loss:.4f} ---", flush=True)
-            wandb.log({"val_loss": avg_val_loss}, step=step)
+                    val_ser += compute_ser(v_logits, vy, cfg.pad_token_id)
+
+            avg_val_ser = val_ser / 11
+            wandb.log({"val_loss": val_loss / 11, "val_ser": avg_val_ser}, step=step)
 
         # 3. Checkpointing (Every 5000 steps)
         if step % 5000 == 0:

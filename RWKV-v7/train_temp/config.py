@@ -55,6 +55,8 @@ class Config:
     cuda_flags: list = None
 
     # --- DYNAMIC TOKEN PROPERTIES ---
+    pad_token_id: int = 0
+    
     @property
     def sep_token_id(self) -> int:
         return self.unique_homophones + 1
