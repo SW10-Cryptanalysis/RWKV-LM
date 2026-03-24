@@ -1,4 +1,7 @@
-import random, torch, os, datetime
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+import random, torch, datetime
 import time
 from datetime import timedelta
 import wandb
@@ -8,6 +11,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.cpp_extension import load
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
+from torch.cuda.amp import autocast
 
 from config import cfg
 from model import get_model
@@ -45,6 +49,7 @@ def get_batch():
 
 if __name__ == "__main__":
     model = get_model()
+    model = torch.compile(model)
     # Optional: print parameter count to confirm the ~130M size
     model_size = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model Size: {model_size/1e6:.1f}M parameters")
@@ -123,8 +128,12 @@ if __name__ == "__main__":
         y = batch[:, 1:]
         
         # Use Autocast for BF16 speedup on L4
-        logits = model(x)
-        loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size), y.reshape(-1), ignore_index=cfg.pad_token_id)
+        with autocast(dtype=torch.bfloat16):
+            logits = model(x)
+            # Ensure loss is calculated in float32 for stability
+            loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size).float(), 
+                                y.reshape(-1), 
+                                ignore_index=cfg.pad_token_id)
 
         opt.zero_grad(set_to_none=True)
         loss.backward()

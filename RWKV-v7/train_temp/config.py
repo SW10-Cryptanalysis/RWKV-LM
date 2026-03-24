@@ -30,10 +30,10 @@ class Config:
     char_offset: int = 2499
     
     # --- TRAINING HYPERPARAMETERS ---
-    batch_size: int = 16
+    batch_size: int = 128
     sequence_length: int = 512  # Must be multiple of chunk_len (16)
     steps: int = 50000
-    learning_rate_init: float = 4e-4  # Initial learning rate
+    learning_rate_init: float = 6e-4  # Initial learning rate
     learning_rate_final: float = 1e-5  # Final learning rate (cosine decay)
     
     # --- GRADIENT OPTIMIZATION ---
@@ -74,7 +74,8 @@ class Config:
                 f'-D_CHUNK_LEN_={self.chunk_len}',
                 '--use_fast_math',
                 '-O3',
-                '-Xptxas -O3'
+                '-Xptxas -O3',
+                '--generate-code=arch=compute_90,code=sm_90' # Target H100 specifically
             ]
         
         # Create output directories
