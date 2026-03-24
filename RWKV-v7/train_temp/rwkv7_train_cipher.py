@@ -45,7 +45,6 @@ def get_batch():
 
 if __name__ == "__main__":
     model = get_model()
-    # Optional: print parameter count to confirm the ~130M size
     model_size = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model Size: {model_size/1e6:.1f}M parameters")
 
