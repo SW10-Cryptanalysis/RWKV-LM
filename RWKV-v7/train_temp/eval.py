@@ -1,54 +1,96 @@
-import torch, torch.nn.functional as F
-from rwkv7_train_cipher import MODEL, CipherDataset, TOKENIZED_TRAINING_DIR, V, C, T
+import json
+import os
+import logging
+import torch
+import torch.nn.functional as F
+from pathlib import Path
+from config import cfg
+from model import get_model
 
-# 1. Load Model
-device = 'cuda'
-model = MODEL().to(device).float()
-model.load_state_dict(torch.load("rwkv7_cipher_final.pth"))
-model.eval()
+# Setup logging to match your style
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("rwkv_eval")
 
-# 2. Grab a test sample
-dataset = CipherDataset(TOKENIZED_TRAINING_DIR)
-# Pick a random sample from the end of the dataset (usually unseen data)
-input_ids = dataset[len(dataset)-1].unsqueeze(0).to(device)
+def evaluate() -> None:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 3. Generate
-# We take the first 100 tokens as a "prompt" and let the model finish the rest
-prompt_length = 100
-generated = input_ids[:, :prompt_length]
+    # 1. Locate and Load RWKV Model
+    # Note: Using the .pth naming convention from your training script
+    model_path = "rwkv7_cipher_final.pth" 
+    if not os.path.exists(model_path):
+        # Fallback to check step-based checkpoints if final isn't there
+        logger.warning(f"Final model not found at {model_path}, check directory.")
+        return
 
-print(f"--- STARTING EVALUATION ---")
-with torch.no_grad():
-    print("--- GENERATING ---")
-    for _ in range(50):
-        T_current = generated.size(1)
+    model = get_model() # This already moves to CUDA and float32
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+
+    # 2. Tokenization Setup (Matches Mistral logic)
+    sep_token = cfg.sep_token_id
+    char_offset = cfg.char_offset
+    chars = "abcdefghijklmnopqrstuvwxyz "
+    id_to_char = {i + char_offset: char for i, char in enumerate(chars)}
+
+    # 3. Load Test Files
+    # Using the pathing logic from your RWKV training setup
+    test_dir = cfg.tokenized_test_dir 
+    test_files = list(test_dir.glob("*.json"))[:10]
+
+    if not test_files:
+        logger.warning(f"No test files found in: {test_dir}")
+        return
+
+    for file_path in test_files:
+        with open(file_path) as f:
+            data = json.load(f)
+
+        cipher_ids = [int(x) for x in data["ciphertext"].split()]
+        true_plain = data["plaintext"]
+
+        # Enforce context limits
+        if len(cipher_ids) > (cfg.sequence_length // 2):
+            cipher_ids = cipher_ids[:(cfg.sequence_length // 2)]
+            true_plain = true_plain[:(cfg.sequence_length // 2)]
+
+        # Prepare initial input: [Cipher] + [SEP]
+        input_ids = cipher_ids + [sep_token]
+        current_tokens = torch.tensor([input_ids], dtype=torch.long).to(device)
+
+        # 4. Autoregressive Generation Loop
+        # RWKV-7 predicts one token at a time
+        generated_ids = []
         
-        # Calculate how much padding we need to reach the next multiple of 16
-        pad_needed = (16 - (T_current % 16)) % 16
-        
-        if pad_needed > 0:
-            # Pad with zeros at the end
-            model_input = F.pad(generated, (0, pad_needed), "constant", 0)
-        else:
-            model_input = generated
-        
-        logits = model(model_input)
-        
-        # IMPORTANT: We want the logit for the ACTUAL last token (T_current - 1)
-        # not the padded tokens.
-        next_token = torch.argmax(logits[:, T_current - 1, :], dim=-1).unsqueeze(0)
-        
-        generated = torch.cat([generated, next_token], dim=1)
-        if next_token.item() == 0: break
+        with torch.no_grad(), torch.cuda.amp.autocast(dtype=torch.bfloat16):
+            for _ in range(len(cipher_ids)):
+                # Forward pass
+                logits = model(current_tokens)
+                
+                # Get the last token's logits
+                next_token_logits = logits[:, -1, :]
+                
+                # Greedy Decoding (equivalent to do_sample=False)
+                next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+                
+                generated_ids.append(next_token.item())
+                
+                # Append to input for next step
+                current_tokens = torch.cat([current_tokens, next_token], dim=1)
 
-# 4. "Human Readable" Decode
-# Since your cipher is likely mapped to specific token IDs:
-def simple_decode(tokens):
-    # This is a placeholder; replace with your actual tokenizer.decode if available
-    return "".join([chr(t % 256) if 32 <= (t % 256) <= 126 else f"[{t}]" for t in tokens])
+        # 5. Decode
+        pred_plain = "".join([id_to_char.get(idx, "?") for idx in generated_ids])
 
-print(f"\nPROMPT (Cipher):")
-print(simple_decode(generated[0, :prompt_length].tolist()))
+        # 6. Calculate SER (Symbol Error Rate)
+        errors = sum(t != p for t, p in zip(true_plain, pred_plain))
+        # Add penalty for length mismatch (though here they are forced equal)
+        errors += abs(len(true_plain) - len(pred_plain))
+        ser = errors / max(len(true_plain), 1)
 
-print(f"\nMODEL OUTPUT (Decryption Attempt):")
-print(simple_decode(generated[0, prompt_length:].tolist()))
+        logger.info(f"--- File: {file_path.name} ---")
+        logger.info(f"True Plain: {true_plain[:50]}...")
+        logger.info(f"Pred Plain: {pred_plain[:50]}...")
+        logger.info(f"SER: {ser:.4f}")
+        logger.info("-" * 30)
+
+if __name__ == "__main__":
+    evaluate()
