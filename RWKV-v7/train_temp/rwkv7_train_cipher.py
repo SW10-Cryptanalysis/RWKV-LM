@@ -10,6 +10,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.cpp_extension import load
 from datasets import load_from_disk
 from torch.utils.data import DataLoader
+from pad_collator import PadCollator
 
 torch.backends.cuda.matmul.fp32_precision = "tf32"
 torch.backends.cudnn.conv.fp32_precision = "tf32"
@@ -26,19 +27,51 @@ load(name="wind_backstepping", sources=[f'cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op
 class CipherDataset(torch.utils.data.Dataset):
     def __init__(self, directory_path):
         self.hf_dataset = load_from_disk(str(directory_path))
-        self.target_len = cfg.sequence_length + 1
     def __len__(self):
         return len(self.hf_dataset)
     def __getitem__(self, idx):
-        ids = self.hf_dataset[idx]["input_ids"]
-        if len(ids) > self.target_len:
-            ids = ids[:self.target_len]
-        else:
-            ids = ids + [cfg.pad_token_id] * (self.target_len - len(ids))
-        return torch.tensor(ids, dtype=torch.long)
+        item = self.hf_dataset[idx]
+        return {
+            "input_ids": item["input_ids"],
+            "labels": item["labels"]
+        }
+    
+base_collator = PadCollator(
+    pad_token_id=cfg.pad_token_id, 
+    max_context=cfg.sequence_length # Using your config's limit
+)
+
+def rwkv_collate_fn(batch):
+    """Wrapper for PadCollator to ensure RWKV chunk_len compatibility."""
+    padded = base_collator(batch)
+    
+    # Check current sequence length
+    t = padded["input_ids"].shape[1]
+    
+    # Ensure T is a multiple of cfg.chunk_len (16)
+    if t % cfg.chunk_len != 0:
+        pad_len = cfg.chunk_len - (t % cfg.chunk_len)
+        
+        # Pad input_ids with pad_token_id
+        padded["input_ids"] = F.pad(padded["input_ids"], (0, pad_len), value=cfg.pad_token_id)
+        # Pad labels with -100 (ignore_index)
+        padded["labels"] = F.pad(padded["labels"], (0, pad_len), value=-100)
+        # Update attention_mask (though RWKV might not use it, good for metrics)
+        padded["attention_mask"] = F.pad(padded["attention_mask"], (0, pad_len), value=0)
+        
+    return padded
+
+
 
 dataset = CipherDataset(cfg.tokenized_training_dir)
-dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+dataloader = DataLoader(
+    dataset, 
+    batch_size=cfg.batch_size, 
+    shuffle=True, 
+    num_workers=4, 
+    pin_memory=True,
+    collate_fn=rwkv_collate_fn # Use the new collate function
+)
 data_iter = iter(dataloader)
 
 def compute_ser(logits, labels, pad_id):
@@ -61,10 +94,13 @@ def compute_ser(logits, labels, pad_id):
 def get_batch():
     global data_iter
     try:
-        return next(data_iter).to('cuda')
+        batch = next(data_iter)
     except StopIteration:
         data_iter = iter(dataloader)
-        return next(data_iter).to('cuda')
+        batch = next(data_iter)
+    
+    # Move only the tensors to CUDA
+    return {k: v.to('cuda') for k, v in batch.items()}
 
 if __name__ == "__main__":
     model = get_model()
@@ -89,7 +125,13 @@ if __name__ == "__main__":
 
     # Validation DataLoader
     val_dataset = CipherDataset(cfg.tokenized_val_dir)
-    val_loader = DataLoader(val_dataset, batch_size=cfg.batch_size, shuffle=False, num_workers=2)
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=cfg.batch_size, 
+        shuffle=False, 
+        num_workers=2,
+        collate_fn=rwkv_collate_fn
+    )
 
     wandb.init(project="RWKV-7-Cipher", name=f"Goose-C{cfg.n_embd}-L{cfg.n_layer}-{datetime.datetime.now().strftime('%H%M')}")
 
@@ -139,16 +181,19 @@ if __name__ == "__main__":
     for step in range(start_step, cfg.steps + 1):
         model.train()
         batch = get_batch()
-        x = batch[:, :-1]
-        y = batch[:, 1:]
+
+        x = batch["input_ids"].to('cuda')
+        y = batch["labels"].to('cuda')
         
         # Use Autocast for BF16 speedup on L4
         with torch.cuda.amp.autocast(dtype=torch.bfloat16):
             logits = model(x)
             # Ensure the loss calculation handles the logit scale correctly
-            loss = F.cross_entropy(logits.reshape(-1, cfg.vocab_size).float(), 
-                                   y.reshape(-1), 
-                                   ignore_index=cfg.pad_token_id)
+            loss = F.cross_entropy(
+                logits.view(-1, cfg.vocab_size), 
+                y.view(-1), 
+                ignore_index=-100 
+            )
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -173,18 +218,25 @@ if __name__ == "__main__":
             val_ser = 0
             with torch.no_grad(), torch.cuda.amp.autocast(dtype=torch.bfloat16): # H100 Speed
                 for i, v_batch in enumerate(val_loader):
-                    if i > 10: break
-                    v_batch = v_batch.to('cuda')
-                    vx, vy = v_batch[:, :-1], v_batch[:, 1:]
+                    if i >= 10: break
+                    vx = v_batch["input_ids"].to('cuda')
+                    vy = v_batch["labels"].to('cuda')
                     
                     v_logits = model(vx)
-                    v_loss = F.cross_entropy(v_logits.reshape(-1, cfg.vocab_size), vy.reshape(-1), ignore_index=cfg.pad_token_id)
+                    v_loss = F.cross_entropy(
+                        v_logits.view(-1, cfg.vocab_size), 
+                        vy.view(-1), 
+                        ignore_index=-100
+                    )
                     
-                    val_loss += v_loss.item()
-                    val_ser += compute_ser(v_logits, vy, cfg.pad_token_id)
+                    total_val_loss += v_loss.item()
+                    total_val_ser += compute_ser(v_logits, vy, -100)
+                    count += 1
 
-            avg_val_ser = val_ser / 11
-            wandb.log({"val_loss": val_loss / 11, "val_ser": avg_val_ser}, step=step)
+            avg_val_loss = total_val_loss / count
+            avg_val_ser = total_val_ser / count
+            print(f"--- VALIDATION | Step {step} | Loss: {avg_val_loss:.4f} | SER: {avg_val_ser:.4f} ---")
+            wandb.log({"val_loss": avg_val_loss, "val_ser": avg_val_ser}, step=step)
 
         # 3. Checkpointing (Every 5000 steps)
         if step % 5000 == 0:
