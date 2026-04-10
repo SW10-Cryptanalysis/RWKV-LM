@@ -13,6 +13,8 @@ from pad_collator import PadCollator
 from config import cfg
 from model import get_model
 
+torch.set_float32_matmul_precision('high')
+
 # --- GPU CONFIG ---
 torch.backends.cuda.matmul.fp32_precision = "tf32"
 torch.backends.cudnn.conv.fp32_precision = "tf32"
