@@ -12,4 +12,5 @@ dependencies = [
     "easy-logging-formatter>=0.1.1",
     "tqdm>=4.67.3",
     "wandb>=0.25.1",
+    "ninja>=1.13.0",
 ]
