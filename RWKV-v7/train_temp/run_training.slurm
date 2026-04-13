@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=12     # Optimized for 1x L4
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:l4:1
-#SBATCH --gid=413905
+
 set -e
 set -o pipefail
 
