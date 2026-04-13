@@ -46,8 +46,8 @@ class PretokenizedCipherDataset(Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         item = self.hf_dataset[idx]
         # Ensure we stay within RWKV's fixed context length
-        input_ids = item["input_ids"][:cfg.sequence_length]
-        labels = item["labels"][:cfg.sequence_length]
+        input_ids = item["input_ids"][:cfg.max_context]
+        labels = item["labels"][:cfg.max_context]
         return {
             "input_ids": torch.tensor(input_ids, dtype=torch.long),
             "labels": torch.tensor(labels, dtype=torch.long),
