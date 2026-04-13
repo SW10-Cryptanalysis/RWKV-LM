@@ -1,64 +1,90 @@
 import os
 import json
 import logging
-from dataclasses import dataclass
+import argparse
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # --- LOGGING SETUP ---
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# --- CLI ARGUMENTS ---
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument(
+    "--without-spaces",
+    action="store_true",
+    default=False,
+    help="If enabled the model trains without space tokens",
+)
+cli_args, _ = parser.parse_known_args()
+
+# --- CONSTANTS FROM MISTRAL ---
+MAX_PLAIN_SPACES = 13077
+MAX_PLAIN_NORMAL = 10063
+
 # --- PATHS ---
 DATA_DIR = Path("/ceph/project/SW10-CausalLM/Ciphers")
 OUTPUT_DIR = Path(__file__).parent / "outputs"
 HOMOPHONE_FILE = "metadata.json"
 
-# Data Directories
-TOKENIZED_TRAINING_DIR = DATA_DIR / "tokenized_normal" / "Training"
-TOKENIZED_TEST_DIR = DATA_DIR / "tokenized_normal" / "Test"
-TOKENIZED_VALIDATION_DIR = DATA_DIR / "tokenized_normal" / "Validation"
-
 @dataclass
 class Config:
-    # --- ARCHITECTURE ---
+    """RWKV-7 Configuration with Mistral-style dynamic property mapping."""
+
+    # --- ARCHITECTURE (RWKV-7) ---
     n_embd: int = 1024
-    n_layer: int = 12
+    n_layer: int = 16 
     head_size: int = 64
-    unique_letters: int = 26
-    unique_homophones: int = 2503  
-    
-    # Ada Lovelace Alignment: Multiples of 128 are ideal for Tensor Cores
-    # Keeping it at 256 is also perfectly fine and slightly "future-proof"
-    vocab_size: int = 2560 
-    
-    # --- RWKV-7 KERNEL CONFIG ---
     chunk_len: int = 16 
     
+    # --- CIPHER PROPERTIES ---
+    buffer: int = 10
+    unique_letters: int = 26
+    unique_homophones: int = 0
+    vocab_size: int = 0 
+    use_spaces: bool = not cli_args.without_spaces
+
     # --- TRAINING HYPERPARAMETERS ---
-    # 64 is a good target for L4 (24GB), but if you hit OOM, drop to 32 or 48.
-    batch_size: int = 64  
-    sequence_length: int = 512
-    steps: int = 50000
-    learning_rate_init: float = 6e-4  
-    learning_rate_final: float = 1e-5
-    
-    # --- GRADIENT OPTIMIZATION ---
-    grad_clip: float = 1.0
+    batch_size: int = 8      # Micro-batch per GPU
+    grad_accum: int = 8      # Effective batch 64
+    steps: int = 1000
+    learning_rate: float = 6e-4
     weight_decay: float = 0.1
+    grad_clip: float = 1.0
     
     # --- LOGGING & SYSTEM ---
     logging_steps: int = 10
+    save_steps: int = 5000
     output_dir: Path = OUTPUT_DIR
-    tokenized_training_dir: Path = TOKENIZED_TRAINING_DIR
-    tokenized_test_dir: Path = TOKENIZED_TEST_DIR
-    tokenized_val_dir: Path = TOKENIZED_VALIDATION_DIR
     
-    # --- CUDA KERNEL FLAGS (Targeting L4 / Ada Lovelace) ---
-    cuda_flags: list = None
+    # --- DATASET PATHS ---
+    tokenized_training_dir: Path = DATA_DIR / "tokenized_normal" / "Training"
+    tokenized_val_dir: Path = DATA_DIR / "tokenized_normal" / "Validation"
+    
+    tokenized_spaced_train_dir: Path = DATA_DIR / "tokenized_spaced" / "Training"
+    tokenized_spaced_val_dir: Path = DATA_DIR / "tokenized_spaced" / "Validation"
 
-    # --- DYNAMIC TOKEN PROPERTIES ---
-    pad_token_id: int = 0
-    
+    # --- CUDA KERNEL FLAGS (L4 Optimized) ---
+    cuda_flags: list = field(default_factory=lambda: [
+        '-res-usage',
+        '--use_fast_math',
+        '-O3',
+        '-Xptxas -O3',
+        '--generate-code=arch=compute_89,code=sm_89'
+    ])
+
+    @property
+    def max_context(self) -> int:
+        """Calculate context window based on dataset type."""
+        if self.use_spaces:
+            return (MAX_PLAIN_SPACES * 2) + self.buffer
+        return (MAX_PLAIN_NORMAL * 2) + self.buffer
+
+    @property
+    def pad_token_id(self) -> int:
+        return 0
+
     @property
     def sep_token_id(self) -> int:
         return self.unique_homophones + 1
@@ -79,49 +105,30 @@ class Config:
     def char_offset(self) -> int:
         return self.eos_token_id + 1
 
-    @property
-    def dim_att(self) -> int:
-        return self.n_embd
-
-    @property
-    def dim_ffn(self) -> int:
-        return int(self.n_embd * 3.5)
-    
+    # --- HELPER METHODS ---
     def load_homophones(self) -> None:
-        """Load homophone mappings from the metadata file."""
+        """Determines vocab size and token offsets from metadata."""
         homophone_path = DATA_DIR / HOMOPHONE_FILE
-        if homophone_path.exists():
-            try:
-                with open(homophone_path) as f:
-                    meta = json.load(f)
-                    self.unique_homophones = int(meta["max_symbol_id"])
-                    logger.info(f"Loaded {self.unique_homophones} homophones.")
-            except Exception as e:
-                logger.warning(f"Metadata load failed: {e}")
+        if not homophone_path.exists():
+            raise FileNotFoundError(f"Missing metadata: {homophone_path}")
 
-        # Padded to 128 for Ada Lovelace Tensor Core efficiency
-        raw_vocab = self.unique_homophones + self.unique_letters + 178
-        self.vocab_size = ((raw_vocab + 127) // 128) * 128
-        logger.info(f"Final Vocab Size (L4 Optimized): {self.vocab_size}")
+        with open(homophone_path) as f:
+            meta = json.load(f)
+            self.unique_homophones = int(meta["max_symbol_id"])
+
+        # Calculate raw size and pad to 64 for L4 Tensor Core alignment
+        raw_vocab = self.unique_homophones + self.unique_letters + 178 # Buffer for special tokens
+        self.vocab_size = ((raw_vocab + 63) // 64) * 64
+        
+        logger.info(f"RWKV-7 Config Initialized. Vocab: {self.vocab_size} | Spaces: {self.use_spaces}")
 
     def __post_init__(self):
-        self.load_homophones()
-
-        assert self.sequence_length % self.chunk_len == 0, \
-            f"sequence_length must be divisible by {self.chunk_len}"
-        
-        # Updated for sm_89 (L4 / 4060 / 4070 / 4080 / 4090 / L40)
-        if self.cuda_flags is None:
-            self.cuda_flags = [
-                '-res-usage',
-                f'-D_C_={self.head_size}',
-                f'-D_CHUNK_LEN_={self.chunk_len}',
-                '--use_fast_math',
-                '-O3',
-                '-Xptxas -O3',
-                '--generate-code=arch=compute_89,code=sm_89' # Targeting Ada Lovelace
-            ]
-        
+        # Ensure directory exists
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Add head/chunk definitions to flags dynamically
+        self.cuda_flags += [f'-D_C_={self.head_size}', f'-D_CHUNK_LEN_={self.chunk_len}']
 
+# Initialize and Load
 cfg = Config()
+cfg.load_homophones()
