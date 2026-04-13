@@ -85,7 +85,7 @@ def train():
     # 1. Model & Optimization
     model = get_model().to("cuda")
     # RWKV-7 specific: compile kernels
-    model = torch.compile(model) 
+    #model = torch.compile(model) 
     
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
     scaler = torch.cuda.amp.GradScaler() # For BF16/FP16 stability
