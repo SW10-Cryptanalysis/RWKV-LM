@@ -35,7 +35,7 @@ def log_environment_details():
         logger.info(f"Compute Capability: {torch.cuda.get_device_capability(0)}")
     logger.info("========================================")
 
-# --- DATASET LOGIC (Ported from Mistral) ---
+# --- DATASET LOGIC
 class PretokenizedCipherDataset(Dataset):
     def __init__(self, directory_path: Path) -> None:
         self.hf_dataset = load_from_disk(str(directory_path))
@@ -54,7 +54,6 @@ class PretokenizedCipherDataset(Dataset):
         }
 
 def safe_pad_collate(batch):
-    """Parity with Mistral's padding logic."""
     input_ids = [item["input_ids"] for item in batch]
     labels = [item["labels"] for item in batch]
     
@@ -134,7 +133,6 @@ def train():
             scaler.update()
             opt.zero_grad(set_to_none=True)
 
-        # --- LOGGING (Mistral-style Metrics) ---
         if step % cfg.logging_steps == 0:
             ser = compute_ser(logits, labels)
             elapsed = time.time() - start_time

@@ -19,7 +19,6 @@ parser.add_argument(
 )
 cli_args, _ = parser.parse_known_args()
 
-# --- CONSTANTS FROM MISTRAL ---
 MAX_PLAIN_SPACES = 13077
 MAX_PLAIN_NORMAL = 10063
 
@@ -38,7 +37,7 @@ TOKENIZED_SPACED_TEST_DIR = DATA_DIR / "tokenized_spaced" / "Test"
 
 @dataclass
 class Config:
-    """RWKV-7 Configuration with Mistral-style dynamic property mapping."""
+    """RWKV-7 Configuration."""
 
     # --- ARCHITECTURE (RWKV-7) ---
     n_embd: int = 1024
