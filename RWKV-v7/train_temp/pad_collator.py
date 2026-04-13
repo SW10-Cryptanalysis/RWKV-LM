@@ -1,6 +1,7 @@
 from typing import Any
 import torch
 from torch.nn.utils.rnn import pad_sequence
+import torch.nn.functional as F
 
 
 class PadCollator:
@@ -62,16 +63,19 @@ class PadCollator:
             input_tensors.append(torch.tensor(inp, dtype=torch.long))
             label_tensors.append(torch.tensor(lab, dtype=torch.long))
 
-        input_ids = pad_sequence(
-            input_tensors,
-            batch_first=True,
-            padding_value=self.pad_token_id,
-        )
-        labels = pad_sequence(
-            label_tensors,
-            batch_first=True,
-            padding_value=self.ignore_index,
-        )
+        input_ids = pad_sequence(input_tensors, batch_first=True, padding_value=self.pad_token_id)
+        labels = pad_sequence(label_tensors, batch_first=True, padding_value=self.ignore_index)
+
+        # --- ADD THIS ALIGNMENT LOGIC ---
+        current_len = input_ids.shape[1]
+        # Calculate how much we need to add to reach the next multiple of 16
+        remainder = current_len % 16
+        if remainder != 0:
+            pad_len = 16 - remainder
+            # Pad the width (dim 1) of the tensors
+            input_ids = F.pad(input_ids, (0, pad_len), value=self.pad_token_id)
+            labels = F.pad(labels, (0, pad_len), value=self.ignore_index)
+        # --------------------------------
 
         attention_mask = (input_ids != self.pad_token_id).long()
 
