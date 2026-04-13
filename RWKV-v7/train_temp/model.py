@@ -46,12 +46,12 @@ def RUN_CUDA_RWKV7g(q, w, k, v, a, b, head_size: int):
     H = HC // head_size
     
     # Reshape to (B, T, H, head_size) for kernel processing
-    q = q.view(B, T, H, head_size)
-    w = w.view(B, T, H, head_size)
-    k = k.view(B, T, H, head_size)
-    v = v.view(B, T, H, head_size)
-    a = a.view(B, T, H, head_size)
-    b = b.view(B, T, H, head_size)
+    q = q.view(B, T, H, head_size).float().contiguous()
+    w = w.view(B, T, H, head_size).float().contiguous()
+    k = k.view(B, T, H, head_size).float().contiguous()
+    v = v.view(B, T, H, head_size).float().contiguous()
+    a = a.view(B, T, H, head_size).float().contiguous()
+    b = b.view(B, T, H, head_size).float().contiguous()
     
     return WindBackstepping.apply(w, q, k, v, a, b).view(B, T, HC)
 
