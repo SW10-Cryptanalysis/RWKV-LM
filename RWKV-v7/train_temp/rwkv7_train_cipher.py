@@ -9,6 +9,7 @@ from tqdm import tqdm
 from datasets import load_from_disk
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils import clip_grad_norm_
+from torch.utils.cpp_extension import load
 
 from config import cfg
 from model import get_model  # Your RWKV model loader
@@ -101,6 +102,14 @@ def compute_ser(logits, labels):
 # --- TRAINING LOOP ---
 def train():
     log_environment_details()
+
+    load(
+        name="wind_backstepping", 
+        sources=['cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op_fp32.cpp'], 
+        is_python_module=False, 
+        verbose=True, # Set to True once to verify compilation
+        extra_cuda_cflags=cfg.cuda_flags
+    )
     
     # 1. Model & Optimization
     model = get_model().to("cuda")
