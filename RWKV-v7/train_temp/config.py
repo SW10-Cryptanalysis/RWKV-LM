@@ -85,14 +85,20 @@ class Config:
 
     @property
     def max_context(self) -> int:
-        """Calculate context window and align to 16 for CUDA kernels."""
+        """Calculate context window and force 16-token alignment for CUDA kernels."""
         if self.use_spaces:
             base_len = (MAX_PLAIN_SPACES * 2) + self.buffer
         else:
             base_len = (MAX_PLAIN_NORMAL * 2) + self.buffer
         
-        # Round up to the nearest multiple of 16
-        return ((base_len + 15) // 16) * 16
+        # This math trick rounds UP to the nearest multiple of 16
+        aligned_len = ((base_len + 15) // 16) * 16
+        return aligned_len
+    
+    @property
+    def sequence_length(self) -> int:
+        """Alias for the data loader."""
+        return self.max_context
 
     @property
     def pad_token_id(self) -> int:
