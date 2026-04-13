@@ -2,10 +2,10 @@
 #SBATCH --job-name=rwkv7_cipher
 #SBATCH --output=logs/slurm_%x_%j.out
 #SBATCH --error=logs/slurm_%x_%j.err
-#SBATCH --time=04:00:00        # 4 hour windows are usually a sweet spot for L4 queues
+#SBATCH --time=12:00:00        # 4 hour windows are usually a sweet spot for L4 queues
 #SBATCH --partition=l4
-#SBATCH --cpus-per-task=12     # Optimized for 1x L4
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=32     # Optimized for 1x L4
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:l4:1
 
 set -e
