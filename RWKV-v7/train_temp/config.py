@@ -85,10 +85,14 @@ class Config:
 
     @property
     def max_context(self) -> int:
-        """Calculate context window based on dataset type."""
+        """Calculate context window and align to 16 for CUDA kernels."""
         if self.use_spaces:
-            return (MAX_PLAIN_SPACES * 2) + self.buffer
-        return (MAX_PLAIN_NORMAL * 2) + self.buffer
+            base_len = (MAX_PLAIN_SPACES * 2) + self.buffer
+        else:
+            base_len = (MAX_PLAIN_NORMAL * 2) + self.buffer
+        
+        # Round up to the nearest multiple of 16
+        return ((base_len + 15) // 16) * 16
 
     @property
     def pad_token_id(self) -> int:
