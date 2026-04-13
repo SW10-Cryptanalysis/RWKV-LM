@@ -1,0 +1,15 @@
+[project]
+name = "train-temp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "datasets>=4.8.4",
+    "levenshtein>=0.27.3",
+    "numpy<2.0.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch==2.9.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "easy-logging-formatter>=0.1.1",
+    "tqdm>=4.67.3",
+    "wandb>=0.25.1",
+]
