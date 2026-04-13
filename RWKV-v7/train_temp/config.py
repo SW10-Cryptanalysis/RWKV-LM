@@ -122,9 +122,16 @@ class Config:
         if not homophone_path.exists():
             raise FileNotFoundError(f"Missing metadata: {homophone_path}")
 
-        with open(homophone_path) as f:
-            meta = json.load(f)
-            self.unique_homophones = int(meta["max_symbol_id"])
+        try:
+            with open(homophone_path) as f:
+                meta = json.load(f)
+                self.unique_homophones = int(meta["max_symbol_id"])
+        except OSError as e:
+            raise OSError(f"Could not read file: {homophone_path}") from e
+        except (ValueError, KeyError) as e:
+            raise ValueError(
+                f"Invalid or missing 'max_symbol_id' in {homophone_path}",
+            ) from e
 
         # Calculate raw size and pad to 64 for L4 Tensor Core alignment
         raw_vocab = self.unique_homophones + self.unique_letters + 178 # Buffer for special tokens
