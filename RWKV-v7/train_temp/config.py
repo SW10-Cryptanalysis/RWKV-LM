@@ -24,9 +24,17 @@ MAX_PLAIN_SPACES = 13077
 MAX_PLAIN_NORMAL = 10063
 
 # --- PATHS ---
-DATA_DIR = Path("/ceph/project/SW10-CausalLM/Ciphers")
-OUTPUT_DIR = Path(__file__).parent / "outputs"
+DATA_DIR = Path(__file__).parent.parent.parent / "Ciphers"
+OUTPUT_DIR = Path(__file__).parent.parent / "outputs"
 HOMOPHONE_FILE = "metadata.json"
+
+TOKENIZED_TRAINING_DIR = DATA_DIR / "tokenized_normal" / "Training"
+TOKENIZED_VALIDATION_DIR = DATA_DIR / "tokenized_normal" / "Validation"
+TOKENIZED_TEST_DIR = DATA_DIR / "tokenized_normal" / "Test"
+
+TOKENIZED_SPACED_TRAINING_DIR = DATA_DIR / "tokenized_spaced" / "Training"
+TOKENIZED_SPACED_VALIDATION_DIR = DATA_DIR / "tokenized_spaced" / "Validation"
+TOKENIZED_SPACED_TEST_DIR = DATA_DIR / "tokenized_spaced" / "Test"
 
 @dataclass
 class Config:
@@ -56,14 +64,16 @@ class Config:
     # --- LOGGING & SYSTEM ---
     logging_steps: int = 10
     save_steps: int = 5000
+
+    # SYSTEM
     output_dir: Path = OUTPUT_DIR
-    
-    # --- DATASET PATHS ---
-    tokenized_training_dir: Path = DATA_DIR / "tokenized_normal" / "Training"
-    tokenized_val_dir: Path = DATA_DIR / "tokenized_normal" / "Validation"
-    
-    tokenized_spaced_train_dir: Path = DATA_DIR / "tokenized_spaced" / "Training"
-    tokenized_spaced_val_dir: Path = DATA_DIR / "tokenized_spaced" / "Validation"
+    tokenized_training_dir: Path = TOKENIZED_TRAINING_DIR
+    tokenized_val_dir: Path = TOKENIZED_VALIDATION_DIR
+    tokenized_test_dir: Path = TOKENIZED_TEST_DIR
+
+    tokenized_spaced_train_dir: Path = TOKENIZED_SPACED_TRAINING_DIR
+    tokenized_spaced_val_dir: Path = TOKENIZED_SPACED_VALIDATION_DIR
+    tokenized_spaced_test_dir: Path = TOKENIZED_SPACED_TEST_DIR
 
     # --- CUDA KERNEL FLAGS (L4 Optimized) ---
     cuda_flags: list = field(default_factory=lambda: [
