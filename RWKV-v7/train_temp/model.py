@@ -83,8 +83,8 @@ class RWKV_Tmix_x070(MyModule):
         self.layer_id = layer_id
         self.head_size = cfg.head_size  # Already here
         self.chunk_len = cfg.chunk_len  # Add this line to store it locally
-        self.n_head = cfg.dim_att // self.head_size
-        assert cfg.dim_att % self.n_head == 0, "dim_att must be divisible by num_heads"
+        self.n_head = cfg.n_embd // self.head_size
+        assert cfg.n_embd % self.n_head == 0, "dim_att must be divisible by num_heads"
         
         H = self.n_head
         N = self.head_size
