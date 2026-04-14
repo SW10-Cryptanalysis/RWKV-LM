@@ -37,11 +37,21 @@ export PATH="$HOME/.local/bin:$PATH"
 export WANDB_MODE=offline
 export TORCH_CUDA_ARCH_LIST="8.9" # Explicitly target L4 Ada architecture
 
+export TORCH_EXTENSIONS_DIR="/tmp/$USER_torch_extensions"
+mkdir -p $TORCH_EXTENSIONS_DIR
+
+export USE_NINJA=1
+
 # 5. DEPENDENCY CHECK (Using uv)
 # Syncing ensures the environment is consistent across different nodes
 if [ ! -d ".venv" ]; then
     uv sync
 fi
+
+uv pip install nvidia-cuda-nvcc-cu12 nvidia-cuda-runtime-cu12 ninja
+
+export CUDA_HOME=$(python -c "import nvidia.cuda_nvcc; print(nvidia.cuda_nvcc.__path__[0])")
+export PATH="$CUDA_HOME/bin:$PATH"
 
 echo "Job started on $(hostname) at $(date)" | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
 nvidia-smi | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
