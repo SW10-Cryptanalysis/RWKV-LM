@@ -53,8 +53,8 @@ class Config:
     use_spaces: bool = not cli_args.without_spaces
 
     # --- TRAINING HYPERPARAMETERS ---
-    batch_size: int = 8      # Micro-batch per GPU
-    grad_accum: int = 8      # Effective batch 64
+    batch_size: int = 2      # Micro-batch per GPU
+    grad_accum: int = 32      # Effective batch 64
     steps: int = 1000
     learning_rate: float = 6e-4
     weight_decay: float = 0.1

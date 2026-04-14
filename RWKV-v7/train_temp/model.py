@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from types import SimpleNamespace
+from torch.utils.checkpoint import checkpoint
 from config import cfg
 
 # --- TORCH JIT DEFINITIONS ---
@@ -239,13 +240,14 @@ class RWKV7Model(nn.Module):
 
     def forward(self, x):
         x = self.embedding(x)
-        
-        # In RWKV-7, the first layer needs an 'empty' v_first to start.
-        # We pass a dummy tensor that the first layer will ignore/overwrite.
         v_first = torch.empty_like(x) 
         
         for block in self.blocks:
-            x, v_first = block(x, v_first)
+            # Wrap the block call in a checkpoint
+            if self.training: # Only checkpoint during training
+                x, v_first = checkpoint(block, x, v_first, use_reentrant=False)
+            else:
+                x, v_first = block(x, v_first)
             
         x = self.lm_head(self.ln_out(x))
         return x
