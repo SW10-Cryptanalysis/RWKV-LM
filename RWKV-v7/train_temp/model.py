@@ -77,7 +77,7 @@ class FFN(nn.Module):
         return self.value(x)
 
 
-class RWKV_Tmix_x070(nn.module):
+class RWKV_Tmix_x070(nn.Module):
     """RWKV-7 Time-Mixing attention layer with variance-preserving initialization."""
     def __init__(self, layer_id):
         super().__init__()
