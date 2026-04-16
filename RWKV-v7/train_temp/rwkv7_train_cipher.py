@@ -55,11 +55,10 @@ class PretokenizedCipherDataset(Dataset):
         }
 
 def safe_pad_collate(batch):
-    # Convert lists of lists to tensors (if they aren't already)
-    input_ids = [torch.tensor(item["input_ids"], dtype=torch.long) for item in batch]
-    labels = [torch.tensor(item["labels"], dtype=torch.long) for item in batch]
+    # item["input_ids"] is already a tensor from __getitem__
+    input_ids = [item["input_ids"] for item in batch]
+    labels = [item["labels"] for item in batch]
     
-    # 1. Pad to longest sequence in batch
     input_ids_padded = torch.nn.utils.rnn.pad_sequence(
         input_ids, batch_first=True, padding_value=cfg.pad_token_id
     )
@@ -67,24 +66,16 @@ def safe_pad_collate(batch):
         labels, batch_first=True, padding_value=-100
     )
 
-    # 2. Force 16-token alignment
+    # Force 16-token alignment for CUDA kernels
     current_len = input_ids_padded.shape[1]
     remainder = current_len % 16
     if remainder != 0:
         pad_len = 16 - remainder
-        input_ids_padded = torch.nn.functional.pad(
-            input_ids_padded, (0, pad_len), value=cfg.pad_token_id
-        )
-        labels_padded = torch.nn.functional.pad(
-            labels_padded, (0, pad_len), value=-100
-        )
+        input_ids_padded = torch.nn.functional.pad(input_ids_padded, (0, pad_len), value=cfg.pad_token_id)
+        labels_padded = torch.nn.functional.pad(labels_padded, (0, pad_len), value=-100)
         
-    # No changes needed to input_ids (must stay long for embedding lookup)
-    # But ensure labels or any intermediate float tensors are float32
-    return {
-        "input_ids": input_ids_padded, 
-        "labels": labels_padded
-    }
+    return {"input_ids": input_ids_padded, "labels": labels_padded}
+
 
 # --- METRICS (SER Calculation) ---
 def compute_ser(logits, labels):
@@ -142,15 +133,13 @@ def train():
         labels = batch["labels"].to("cuda")
 
         # Mixed Precision Forward
-        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+        with torch.amp.autocast('cuda', dtype=torch.bfloat16):
             logits = model(input_ids)
-            # Loss Calculation (Cross Entropy handles -100 automatically)
             loss = torch.nn.functional.cross_entropy(
                 logits.view(-1, cfg.vocab_size), 
                 labels.view(-1), 
                 ignore_index=-100
             )
-            # Scale loss for gradient accumulation
             loss = loss / cfg.grad_accum
 
         scaler.scale(loss).backward()

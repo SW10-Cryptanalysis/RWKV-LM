@@ -77,7 +77,7 @@ class FFN(nn.Module):
         return self.value(x)
 
 
-class RWKV_Tmix_x070(MyModule):
+class RWKV_Tmix_x070(nn.module):
     """RWKV-7 Time-Mixing attention layer with variance-preserving initialization."""
     def __init__(self, layer_id):
         super().__init__()
@@ -170,7 +170,7 @@ class RWKV_Tmix_x070(MyModule):
             self.value.weight.data.uniform_(-0.5 / (C ** 0.5), 0.5 / (C ** 0.5))
             self.output.weight.data.zero_()
 
-    @MyFunction
+    
     def forward(self, x, v_first):
         B, T, C = x.size()
         H = self.n_head
@@ -240,7 +240,7 @@ class RWKV7Model(nn.Module):
 
     def forward(self, x):
         x = self.embedding(x)
-        v_first = torch.empty_like(x) 
+        v_first = torch.zeros_like(x)
         
         for block in self.blocks:
             # Wrap the block call in a checkpoint
