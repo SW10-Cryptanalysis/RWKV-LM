@@ -40,8 +40,8 @@ class Config:
     """RWKV-7 Configuration."""
 
     # --- ARCHITECTURE (RWKV-7) ---
-    n_embd: int = 1024
-    n_layer: int = 16 
+    n_embd: int = 768
+    n_layer: int = 8 
     head_size: int = 64
     chunk_len: int = 16 
     
@@ -53,8 +53,8 @@ class Config:
     use_spaces: bool = not cli_args.without_spaces
 
     # --- TRAINING HYPERPARAMETERS ---
-    batch_size: int = 2      # Micro-batch per GPU
-    grad_accum: int = 32      # Effective batch 64
+    batch_size: int = 1      # Micro-batch per GPU
+    grad_accum: int = 64      # Effective batch 64
     steps: int = 1000
     learning_rate: float = 6e-4
     weight_decay: float = 0.1
