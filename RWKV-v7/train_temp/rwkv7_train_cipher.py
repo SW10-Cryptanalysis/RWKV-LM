@@ -3,6 +3,7 @@ import time
 import torch
 import logging
 import numpy as np
+import contextlib
 import wandb
 from pathlib import Path
 from tqdm import tqdm
@@ -97,11 +98,12 @@ def compute_ser(logits, labels):
 # --- UPDATED TRAINING LOOP ---
 def train():
     # 1. Initialize Distributed Environment
-    dist.init_process_group(backend="nccl")
+    
     local_rank = int(os.environ["LOCAL_RANK"])
     global_rank = dist.get_rank()  # Unique ID for every GPU (0-3)
     torch.cuda.set_device(local_rank)
     device = torch.device(f"cuda:{local_rank}")
+    dist.init_process_group(backend="nccl", device_id=device)
 
     if global_rank == 0:
         log_environment_details()
