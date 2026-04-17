@@ -10,6 +10,9 @@ from datasets import load_from_disk
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.cpp_extension import load
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 
 from config import cfg
 from model import get_model  # Your RWKV model loader
@@ -91,86 +94,105 @@ def compute_ser(logits, labels):
     return 1.0 - (correct / total) if total > 0 else 0.0
 
 # --- TRAINING LOOP ---
+# --- UPDATED TRAINING LOOP ---
 def train():
-    log_environment_details()
+    # 1. Initialize Distributed Environment
+    dist.init_process_group(backend="nccl")
+    local_rank = int(os.environ["LOCAL_RANK"])
+    global_rank = dist.get_rank()  # Unique ID for every GPU (0-3)
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
 
+    if global_rank == 0:
+        log_environment_details()
+        wandb.init(project="RWKV7-Cipher-4GPU", config=cfg.__dict__)
+
+    # Ensure all GPUs have the CUDA kernels loaded before moving on
     load(
         name="wind_backstepping", 
         sources=['cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op_fp32.cpp'], 
         is_python_module=False, 
-        verbose=True, # Set to True once to verify compilation
         extra_cuda_cflags=cfg.cuda_flags
     )
+    dist.barrier() 
     
-    # 1. Model & Optimization
-    model = get_model().to("cuda")
-    # RWKV-7 specific: compile kernels
-    #model = torch.compile(model) 
+    # 2. Model Setup
+    model = get_model().to(device)
+    # Wrap in DDP - find_unused_parameters=False is faster for RWKV
+    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
     
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
-    scaler = torch.cuda.amp.GradScaler() # For BF16/FP16 stability
+    scaler = torch.amp.GradScaler('cuda') 
     
-    # 2. Data Loading
+    # 3. Distributed Data Loading
     data_path = cfg.tokenized_spaced_train_dir if cfg.use_spaces else cfg.tokenized_training_dir
     train_ds = PretokenizedCipherDataset(data_path)
+    
+    # NEW: DistributedSampler splits the data into 4 unique chunks
+    train_sampler = DistributedSampler(train_ds, shuffle=True, drop_last=True)
     train_loader = DataLoader(
         train_ds, 
         batch_size=cfg.batch_size, 
-        shuffle=True, 
+        sampler=train_sampler, # Replaces shuffle=True
         collate_fn=safe_pad_collate,
-        num_workers=4
+        num_workers=8, # Bumped for 4 GPUs
+        pin_memory=True
     )
 
-    # 3. Telemetry Tracking
-    wandb.init(project="RWKV7-Cipher", config=cfg.__dict__)
-    start_time = time.time()
-    
-    logger.info(f"Starting Training. Dataset size: {len(train_ds)}")
+    for epoch in range(10): # Example epoch loop
+        train_sampler.set_epoch(epoch) # Critical for proper shuffling in DDP
+        
+        for step, batch in enumerate(tqdm(train_loader, disable=(global_rank != 0))):
+            model.train()
+            input_ids = batch["input_ids"].to(device, non_blocking=True)
+            labels = batch["labels"].to(device, non_blocking=True)
 
-    for step, batch in enumerate(tqdm(train_loader)):
-        model.train()
-        input_ids = batch["input_ids"].to("cuda")
-        labels = batch["labels"].to("cuda")
+            # Optimization: Disable gradient syncing during accumulation steps
+            # Only sync on the step where we actually call the optimizer
+            is_accumulating = (step + 1) % cfg.grad_accum != 0
+            
+            context = model.no_sync() if is_accumulating else contextlib.nullcontext()
+            
+            with context:
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                    logits = model(input_ids)
+                    loss = torch.nn.functional.cross_entropy(
+                        logits.view(-1, cfg.vocab_size), 
+                        labels.view(-1), 
+                        ignore_index=-100
+                    )
+                    loss = loss / cfg.grad_accum
 
-        # Mixed Precision Forward
-        with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-            logits = model(input_ids)
-            loss = torch.nn.functional.cross_entropy(
-                logits.view(-1, cfg.vocab_size), 
-                labels.view(-1), 
-                ignore_index=-100
-            )
-            loss = loss / cfg.grad_accum
+                scaler.scale(loss).backward()
 
-        scaler.scale(loss).backward()
+            # Optimizer Step
+            if not is_accumulating:
+                scaler.unscale_(opt)
+                clip_grad_norm_(model.parameters(), cfg.grad_clip)
+                scaler.step(opt)
+                scaler.update()
+                opt.zero_grad(set_to_none=True)
 
-        if (step + 1) % cfg.grad_accum == 0:
-            scaler.unscale_(opt)
-            clip_grad_norm_(model.parameters(), cfg.grad_clip)
-            scaler.step(opt)
-            scaler.update()
-            opt.zero_grad(set_to_none=True)
+            # 4. Rank-0 Logging & Checkpointing
+            if global_rank == 0 and step % cfg.logging_steps == 0:
+                ser = compute_ser(logits, labels)
+                vram = torch.cuda.max_memory_allocated() / (1024**3)
+                wandb.log({
+                    "train/loss": loss.item() * cfg.grad_accum,
+                    "train/ser": ser,
+                    "train/vram_gb": vram
+                })
 
-        if step % cfg.logging_steps == 0:
-            ser = compute_ser(logits, labels)
-            elapsed = time.time() - start_time
-            # Tokens per second
-            tps = (input_ids.numel() * cfg.grad_accum) / (elapsed / (step + 1))
-            vram = torch.cuda.max_memory_allocated() / (1024**3)
+            if global_rank == 0 and step > 0 and step % cfg.save_steps == 0:
+                # Save the underlying model, not the DDP wrapper
+                checkpoint_path = cfg.output_dir / f"rwkv_step_{step}.pth"
+                torch.save(model.module.state_dict(), checkpoint_path)
 
-            wandb.log({
-                "train/loss": loss.item() * cfg.grad_accum,
-                "train/ser": ser,
-                "train/tps": tps,
-                "train/vram_gb": vram
-            })
-
-        if step > 0 and step % cfg.save_steps == 0:
-            checkpoint_path = cfg.output_dir / f"rwkv_step_{step}.pth"
-            torch.save(model.state_dict(), checkpoint_path)
-
-    # Final Save
-    torch.save(model.state_dict(), cfg.output_dir / "rwkv7_cipher_final.pth")
+    # Final Sync and Save
+    dist.barrier()
+    if global_rank == 0:
+        torch.save(model.module.state_dict(), cfg.output_dir / "rwkv7_cipher_final.pth")
+    dist.destroy_process_group()
 
 if __name__ == "__main__":
     train()
