@@ -63,10 +63,13 @@ export PATH="$CUDA_HOME/bin:$PATH"
 echo "Job started on $(hostname) at $(date)" | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
 nvidia-smi | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
 
+export MASTER_PORT=$(shuf -i 10000-65000 -n 1)
+echo "Using Master Port: $MASTER_PORT"
+
 # 6. EXECUTION
 # We use 'timeout' to stop the script 5 minutes before the Slurm walltime expires.
 # This gives the Python script a chance to catch the signal and the system to clean up.
 # Slurm time is 4h (14400s). We stop at 14100s.
-timeout 42900s uv run torchrun --nproc_per_node=4 rwkv7_train_cipher.py 2>&1 | tee -a logs/train_live_${SLURM_JOB_ID}.log
+timeout 42900s uv run torchrun --nproc_per_node=4 --master_port=$MASTER_PORT rwkv7_train_cipher.py 2>&1 | tee -a logs/train_live_${SLURM_JOB_ID}.log
 
 echo "Job cycle finished at $(date)" | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
