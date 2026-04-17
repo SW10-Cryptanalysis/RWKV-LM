@@ -55,10 +55,10 @@ if [ ! -d ".venv" ]; then
     uv sync
 fi
 
-uv pip install nvidia-cuda-nvcc-cu12 nvidia-cuda-runtime-cu12 ninja
+#uv pip install nvidia-cuda-nvcc-cu12 nvidia-cuda-runtime-cu12 ninja
 
-export CUDA_HOME=$(python -c "import nvidia.cuda_nvcc; print(nvidia.cuda_nvcc.__path__[0])")
-export PATH="$CUDA_HOME/bin:$PATH"
+#export CUDA_HOME=$(python -c "import nvidia.cuda_nvcc; print(nvidia.cuda_nvcc.__path__[0])")
+#export PATH="$CUDA_HOME/bin:$PATH"
 
 echo "Job started on $(hostname) at $(date)" | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
 nvidia-smi | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
