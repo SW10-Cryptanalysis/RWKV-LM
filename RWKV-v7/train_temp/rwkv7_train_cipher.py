@@ -97,26 +97,28 @@ def compute_ser(logits, labels):
 # --- TRAINING LOOP ---
 # --- UPDATED TRAINING LOOP ---
 def train():
-    # 1. Initialize Distributed Environment
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
     
-    local_rank = int(os.environ["LOCAL_RANK"])
-    global_rank = dist.get_rank()  # Unique ID for every GPU (0-3)
     torch.cuda.set_device(local_rank)
     device = torch.device(f"cuda:{local_rank}")
-    dist.init_process_group(backend="nccl", device_id=device)
+
+    dist.init_process_group(backend="nccl") 
+    
+    global_rank = dist.get_rank() 
 
     if global_rank == 0:
         log_environment_details()
-        wandb.init(project="RWKV7-Cipher-4GPU", config=cfg.__dict__)
+        if not wandb.run:
+            wandb.init(project="RWKV7-Cipher-4GPU", config=cfg.__dict__)
 
-    # Ensure all GPUs have the CUDA kernels loaded before moving on
+    dist.barrier() 
+
     load(
         name="wind_backstepping", 
         sources=['cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op_fp32.cpp'], 
         is_python_module=False, 
         extra_cuda_cflags=cfg.cuda_flags
     )
-    dist.barrier() 
     
     # 2. Model Setup
     model = get_model().to(device)
