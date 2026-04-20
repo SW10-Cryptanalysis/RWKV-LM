@@ -113,17 +113,31 @@ def train():
 
     dist.barrier() 
 
-    load(
-        name="wind_backstepping", 
-        sources=['cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op_fp32.cpp'], 
-        is_python_module=False, 
-        extra_cuda_cflags=cfg.cuda_flags
-    )
+    # Wrap the load call in a rank-0 guard
+    if global_rank == 0:
+        load(
+            name="wind_backstepping", 
+            sources=['cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op_fp32.cpp'], 
+            is_python_module=False, 
+            extra_cuda_cflags=cfg.cuda_flags
+        )
+    
+    # Force Ranks 1, 2, and 3 to wait until Rank 0 is done compiling
+    dist.barrier() 
+    
+    # Now Ranks 1-3 load the already-compiled kernel
+    if global_rank != 0:
+        load(
+            name="wind_backstepping", 
+            sources=['cuda/wkv7_cuda_fp32.cu', 'cuda/wkv7_op_fp32.cpp'], 
+            is_python_module=False, 
+            extra_cuda_cflags=cfg.cuda_flags
+        )
     
     # 2. Model Setup
     model = get_model().to(device)
     # Wrap in DDP - find_unused_parameters=False is faster for RWKV
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
+    model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
     
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
     scaler = torch.amp.GradScaler('cuda') 
