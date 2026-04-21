@@ -136,7 +136,21 @@ def train():
     
     # 2. Model Setup
     model = get_model().to(device)
-    # Wrap in DDP - find_unused_parameters=False is faster for RWKV
+
+    checkpoints = sorted(list(cfg.output_dir.glob("rwkv_step_*.pth")), 
+                         key=lambda x: int(x.stem.split('_')[-1]))
+    
+    start_step = 0
+    if checkpoints:
+        latest_ckpt = checkpoints[-1]
+        start_step = int(latest_ckpt.stem.split('_')[-1])
+        if global_rank == 0:
+            logger.info(f"Resuming from checkpoint: {latest_ckpt} (Step {start_step})")
+        
+        # Load weights into the raw model before wrapping in DDP
+        model.load_state_dict(torch.load(latest_ckpt, map_addr=device, weights_only=True))
+    
+    # Wrap in DDP
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
     
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
@@ -160,7 +174,7 @@ def train():
     for epoch in range(10): # Example epoch loop
         train_sampler.set_epoch(epoch) # Critical for proper shuffling in DDP
         
-        for step, batch in enumerate(tqdm(train_loader, disable=(global_rank != 0))):
+        for step, batch in enumerate(tqdm(train_loader, disable=(global_rank != 0)), start=start_step):
             model.train()
             input_ids = batch["input_ids"].to(device, non_blocking=True)
             labels = batch["labels"].to(device, non_blocking=True)
@@ -202,9 +216,20 @@ def train():
                 })
 
             if global_rank == 0 and step > 0 and step % cfg.save_steps == 0:
-                # Save the underlying model, not the DDP wrapper
                 checkpoint_path = cfg.output_dir / f"rwkv_step_{step}.pth"
-                torch.save(model.module.state_dict(), checkpoint_path)
+                # Save a bundle
+                state = {
+                    "model": model.module.state_dict(),
+                    "optimizer": opt.state_dict(),
+                    "scaler": scaler.state_dict(),
+                    "step": step
+                }
+                torch.save(state, checkpoint_path)
+                
+                # (Optional) Remove the checkpoint from 2 cycles ago to save disk space
+                old_ckpt = cfg.output_dir / f"rwkv_step_{step - (cfg.save_steps * 2)}.pth"
+                if old_ckpt.exists():
+                    old_ckpt.unlink()
 
     # Final Sync and Save
     dist.barrier()

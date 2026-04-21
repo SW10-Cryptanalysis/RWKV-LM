@@ -62,7 +62,7 @@ class Config:
     
     # --- LOGGING & SYSTEM ---
     logging_steps: int = 10
-    save_steps: int = 5000
+    save_steps: int = 1000
 
     # SYSTEM
     output_dir: Path = OUTPUT_DIR
