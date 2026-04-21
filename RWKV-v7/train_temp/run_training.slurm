@@ -9,67 +9,41 @@
 #SBATCH --gres=gpu:l4:4
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
+# Ensure only one job with this name runs at a time
+#SBATCH --dependency=singleton
 
 set -e
 set -o pipefail
 
-# 1. PATH SETUP
 PROJECT_DIR="/ceph/project/SW10-CausalLM/RWKV-LM/RWKV-v7/train_temp"
 cd $PROJECT_DIR || exit 1
-mkdir -p logs
 
-# 2. TERMINATION CHECK
-# If the final model exists, we stop the chain.
+# 1. PRE-RUN CHECK
 FINAL_MODEL="rwkv7_cipher_final.pth"
 if [ -f "$FINAL_MODEL" ]; then
-    echo "Success: $FINAL_MODEL found. Training complete. Breaking chain."
+    echo "Success: $FINAL_MODEL found. Breaking chain."
     exit 0
 fi
 
-# 3. SELF-RESUBMISSION
-# We queue the next job immediately. 'afterany' ensures that even if this 
-# job times out or fails, the next one starts and attempts to resume from checkpoint.
-if [ -n "$SLURM_JOB_ID" ]; then
-    echo "Queuing continuation job..."
-    sbatch --dependency=afterany:$SLURM_JOB_ID $0
-fi
-
-# 4. ENVIRONMENT SETUP
-export PATH="$HOME/.local/bin:$PATH"
+# 2. ENVIRONMENT SETUP
 export WANDB_MODE=offline
-export TORCH_CUDA_ARCH_LIST="8.9" # Explicitly target L4 Ada architecture
-
-export CC=$(which gcc)
-export CXX=$(which g++)
-export NVCC_CCBIN=$CC
 export TORCH_EXTENSIONS_DIR="$PROJECT_DIR/torch_extensions_cache"
-mkdir -p $TORCH_EXTENSIONS_DIR
-
-export PYTORCH_ALLOC_CONF="expandable_segments:True"
-
-export USE_NINJA=1
-
-# 5. DEPENDENCY CHECK (Using uv)
-# Syncing ensures the environment is consistent across different nodes
-if [ ! -d ".venv" ]; then
-    uv sync
-fi
-
-#uv pip install nvidia-cuda-nvcc-cu12 nvidia-cuda-runtime-cu12 ninja
-
-#export CUDA_HOME=$(python -c "import nvidia.cuda_nvcc; print(nvidia.cuda_nvcc.__path__[0])")
-#export PATH="$CUDA_HOME/bin:$PATH"
-
-echo "Job started on $(hostname) at $(date)" | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
-nvidia-smi | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
-
 export MASTER_PORT=$(shuf -i 10000-65000 -n 1)
-echo "Using Master Port: $MASTER_PORT"
 
-# 6. EXECUTION
-# We use 'timeout' to stop the script 5 minutes before the Slurm walltime expires.
-# This gives the Python script a chance to catch the signal and the system to clean up.
-# Slurm time is 4h (14400s). We stop at 14100s.
-timeout 42900s uv run torchrun --nproc_per_node=4 --master_port=$MASTER_PORT rwkv7_train_cipher.py 2>&1 | tee -a logs/train_live_${SLURM_JOB_ID}.log
+# 3. EXECUTION 
+# Slurm walltime is 14400s (4h). 
+# We stop at 13800s (3h 50m) to allow 10 mins for saving/cleanup.
+echo "Job started at $(date)" | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
 
-echo "Job cycle finished at $(date)" | tee -a "logs/train_live_${SLURM_JOB_ID}.log"
+timeout 13800s uv run torchrun \
+    --nproc_per_node=4 \
+    --master_port=$MASTER_PORT \
+    rwkv7_train_cipher.py 2>&1 | tee -a logs/train_live_${SLURM_JOB_ID}.log
+
+# 4. POST-RUN RESUBMISSION
+# Only resubmit if the job finished naturally (timed out) 
+# and the final model still hasn't been created.
+if [ ! -f "$FINAL_MODEL" ]; then
+    echo "Cycle complete. Queuing next job..."
+    sbatch $0
+fi
