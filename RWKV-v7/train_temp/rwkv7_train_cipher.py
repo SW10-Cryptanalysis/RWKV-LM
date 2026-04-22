@@ -148,7 +148,7 @@ def train():
             logger.info(f"Resuming from checkpoint: {latest_ckpt} (Step {start_step})")
         
         # Load weights into the raw model before wrapping in DDP
-        model.load_state_dict(torch.load(latest_ckpt, map_addr=device, weights_only=True))
+        model.load_state_dict(torch.load(latest_ckpt, map_location=device, weights_only=True))
     
     # Wrap in DDP
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
