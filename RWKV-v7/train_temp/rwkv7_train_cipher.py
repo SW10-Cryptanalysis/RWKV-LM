@@ -135,26 +135,41 @@ def train():
         )
     
     # 2. Model Setup
+    # --- 2. Model Setup (Resume Logic Fix) ---
     model = get_model().to(device)
-
+    
     checkpoints = sorted(list(cfg.output_dir.glob("rwkv_step_*.pth")), 
                          key=lambda x: int(x.stem.split('_')[-1]))
     
     start_step = 0
     if checkpoints:
         latest_ckpt = checkpoints[-1]
-        start_step = int(latest_ckpt.stem.split('_')[-1])
         if global_rank == 0:
-            logger.info(f"Resuming from checkpoint: {latest_ckpt} (Step {start_step})")
+            logger.info(f"Resuming from bundle: {latest_ckpt}")
         
-        # Load weights into the raw model before wrapping in DDP
-        model.load_state_dict(torch.load(latest_ckpt, map_location=device, weights_only=True))
+        # 1. Load the whole bundle
+        # Note: weights_only=False is needed because the bundle contains 
+        # non-tensor data like the 'step' integer.
+        checkpoint = torch.load(latest_ckpt, map_location=device, weights_only=False)
+        
+        # 2. Extract the specific pieces
+        model.load_state_dict(checkpoint["model"])
+        start_step = checkpoint["step"]
+        
+        # We will load opt and scaler states AFTER they are initialized below
     
     # Wrap in DDP
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
     
+    # 3. Optimizer Setup
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
-    scaler = torch.amp.GradScaler('cuda') 
+    scaler = torch.amp.GradScaler('cuda')
+
+    # 4. Load Optimizer/Scaler state if resuming
+    if checkpoints:
+        opt.load_state_dict(checkpoint["optimizer"])
+        scaler.load_state_dict(checkpoint["scaler"])
+        del checkpoint # Free up memory
     
     # 3. Distributed Data Loading
     data_path = cfg.tokenized_spaced_train_dir if cfg.use_spaces else cfg.tokenized_training_dir
@@ -173,8 +188,23 @@ def train():
 
     for epoch in range(10): # Example epoch loop
         train_sampler.set_epoch(epoch) # Critical for proper shuffling in DDP
+        # Calculate how many steps into the current epoch we are
+        steps_to_skip = start_step % len(train_loader)
         
-        for step, batch in enumerate(tqdm(train_loader, disable=(global_rank != 0)), start=start_step):
+        # Create the iterator
+        data_iter = iter(train_loader)
+        
+        # Skip the batches we already processed
+        if steps_to_skip > 0:
+            if global_rank == 0:
+                logger.info(f"Skipping {steps_to_skip} batches to resume data position...")
+            for _ in range(steps_to_skip):
+                next(data_iter)
+
+        # Now use the iterator in your loop
+        for step in tqdm(range(start_step, len(train_loader)), disable=(global_rank != 0)):
+            batch = next(data_iter)
+            # ... rest of your training code ...
             model.train()
             input_ids = batch["input_ids"].to(device, non_blocking=True)
             labels = batch["labels"].to(device, non_blocking=True)
