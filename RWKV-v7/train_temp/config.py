@@ -27,13 +27,13 @@ DATA_DIR = Path(__file__).parent.parent.parent.parent / "Ciphers"
 OUTPUT_DIR = Path(__file__).parent / "outputs"
 HOMOPHONE_FILE = "metadata.json"
 
-TOKENIZED_TRAINING_DIR = DATA_DIR / "tokenized_normal" / "Training"
-TOKENIZED_VALIDATION_DIR = DATA_DIR / "tokenized_normal" / "Validation"
-TOKENIZED_TEST_DIR = DATA_DIR / "tokenized_normal" / "Test"
+TOKENIZED_TRAINING_DIR = DATA_DIR / "tokenized_normal_truncated_4000" / "Training"
+TOKENIZED_VALIDATION_DIR = DATA_DIR / "tokenized_normal_truncated_4000" / "Validation"
+TOKENIZED_TEST_DIR = DATA_DIR / "tokenized_normal_truncated_4000" / "Test"
 
-TOKENIZED_SPACED_TRAINING_DIR = DATA_DIR / "tokenized_spaced" / "Training"
-TOKENIZED_SPACED_VALIDATION_DIR = DATA_DIR / "tokenized_spaced" / "Validation"
-TOKENIZED_SPACED_TEST_DIR = DATA_DIR / "tokenized_spaced" / "Test"
+TOKENIZED_SPACED_TRAINING_DIR = DATA_DIR / "tokenized_spaced_truncated_4000" / "Training"
+TOKENIZED_SPACED_VALIDATION_DIR = DATA_DIR / "tokenized_spaced_truncated_4000" / "Validation"
+TOKENIZED_SPACED_TEST_DIR = DATA_DIR / "tokenized_spaced_truncated_4000" / "Test"
 
 @dataclass
 class Config:
