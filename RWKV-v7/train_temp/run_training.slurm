@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=rwkv7_cipher
+#SBATCH --job-name=rwkv7_4k_cipher
 #SBATCH --output=logs/slurm_%x_%j.out
 #SBATCH --error=logs/slurm_%x_%j.err
 #SBATCH --time=04:00:00
@@ -17,7 +17,7 @@ set -e
 set -o pipefail
 
 # --- 1. PATH & DIR SETUP ---
-PROJECT_DIR="/ceph/project/SW10-CausalLM/RWKV-LM/RWKV-v7/train_temp"
+PROJECT_DIR="/ceph/project/SW10-CausalLM/RWKV-4K/RWKV-v7/train_temp"
 cd $PROJECT_DIR || exit 1
 mkdir -p logs
 mkdir -p tmp 
