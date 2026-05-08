@@ -32,8 +32,6 @@ torch.backends.cudnn.conv.fp32_precision = "tf32"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 def log_environment_details():
-    """Environment telemetry ported from Mistral config."""
-    logger.info("=== RWKV-7 Execution Environment ===")
     logger.info(f"PyTorch: {torch.__version__} | CUDA: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
@@ -142,18 +140,22 @@ def train():
                          key=lambda x: int(x.stem.split('_')[-1]))
     
     start_step = 0
+    # Updated Checkpoint Logic for Cross-Architecture loading
     if checkpoints:
         latest_ckpt = checkpoints[-1]
-        if global_rank == 0:
-            logger.info(f"Resuming from bundle: {latest_ckpt}")
+        # Load to CPU first to be safe, then move to the current B200 rank
+        checkpoint = torch.load(latest_ckpt, map_location='cpu', weights_only=False)
         
-        # 1. Load the whole bundle
-        # Note: weights_only=False is needed because the bundle contains 
-        # non-tensor data like the 'step' integer.
-        checkpoint = torch.load(latest_ckpt, map_location=device, weights_only=False)
+        state_dict = checkpoint["model"]
         
-        # 2. Extract the specific pieces
-        model.load_state_dict(checkpoint["model"])
+        # Handle DDP vs non-DDP naming mismatch
+        # If saved without DDP but loading into DDP:
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            name = k if k.startswith('module.') else f'module.{k}'
+            new_state_dict[name] = v
+            
+        model.load_state_dict(new_state_dict)
         start_step = checkpoint["step"]
         
         # We will load opt and scaler states AFTER they are initialized below
@@ -182,8 +184,9 @@ def train():
         batch_size=cfg.batch_size, 
         sampler=train_sampler, # Replaces shuffle=True
         collate_fn=safe_pad_collate,
-        num_workers=8, # Bumped for 4 GPUs
-        pin_memory=True
+        num_workers=12,
+        pin_memory=True,
+        prefetch_factor=4
     )
 
     for epoch in range(10): # Example epoch loop

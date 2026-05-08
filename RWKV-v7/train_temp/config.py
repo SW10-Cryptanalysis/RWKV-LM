@@ -43,7 +43,7 @@ class Config:
     n_embd: int = 768
     n_layer: int = 8 
     head_size: int = 64
-    chunk_len: int = 16 
+    chunk_len: int = 32
     
     # --- CIPHER PROPERTIES ---
     buffer: int = 10
@@ -53,8 +53,8 @@ class Config:
     use_spaces: bool = not cli_args.without_spaces
 
     # --- TRAINING HYPERPARAMETERS ---
-    batch_size: int = 1      # Micro-batch per GPU
-    grad_accum: int = 64      # Effective batch 64
+    batch_size: int = 16      # Micro-batch per GPU
+    grad_accum: int = 4      # Effective batch 64
     steps: int = 1000
     learning_rate: float = 6e-4
     weight_decay: float = 0.1
@@ -80,7 +80,7 @@ class Config:
         '--use_fast_math',
         '-O3',
         '-Xptxas -O3',
-        '--generate-code=arch=compute_89,code=sm_89'
+        '--generate-code=arch=compute_100,code=sm_100'
     ])
 
     @property
