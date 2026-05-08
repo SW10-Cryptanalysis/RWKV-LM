@@ -3,7 +3,7 @@ set -e
 
 # 1. Workspace Setup
 # Adjust this to your B200 cluster's specific path if different from /work
-cd /ceph/project/SW10-CausalLM/RWKV-LM/
+cd /work
 
 # 2. Clone the RWKV repository and your Blackwell branch
 if [ ! -d "RWKV-v7" ]; then
@@ -12,7 +12,7 @@ if [ ! -d "RWKV-v7" ]; then
     git clone -b ucloud https://github.com/SW10-Cryptanalysis/RWKV-LM.git 
 fi
 
-cd RWKV-v7
+cd RWKV-LM/RWKV-v7/train_temp
 mkdir -p logs
 
 NUM_GPUS=$(nvidia-smi --list-gpus | wc -l)
@@ -32,19 +32,7 @@ if ! command -v uv &> /dev/null; then
     export PATH="$HOME/.cargo/bin:$PATH"
 fi
 
-# ---------------------------------------------------------
-# 5. Virtual Environment & Blackwell Dependencies
-# ---------------------------------------------------------
-echo "Setting up Blackwell-compatible environment..."
-uv venv
-source .venv/bin/activate
-
-uv pip install --upgrade pip
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 # Or cu128 if available
-
-uv pip install ninja wandb weave datasets tqdm
-
-uv pip install -e .
+uv sync
 
 # This environment variable tells PyTorch which architecture to compile for
 export TORCH_CUDA_ARCH_LIST="10.0"
