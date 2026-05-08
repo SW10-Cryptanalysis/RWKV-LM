@@ -9,7 +9,7 @@ cd /ceph/project/SW10-CausalLM/RWKV-LM/
 if [ ! -d "RWKV-v7" ]; then
     echo "Cloning RWKV-v7 repository..."
     # Replace with your actual RWKV repo URL
-    git clone -b ucloud https://github.com/jriede20/RWKV-v7.git 
+    git clone -b ucloud https://github.com/SW10-Cryptanalysis/RWKV-LM.git 
 fi
 
 cd RWKV-v7
