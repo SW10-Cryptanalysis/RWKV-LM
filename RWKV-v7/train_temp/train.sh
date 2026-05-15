@@ -36,6 +36,7 @@ uv sync
 
 # This environment variable tells PyTorch which architecture to compile for
 export TORCH_CUDA_ARCH_LIST="10.0"
+export WANDB_MODE=offline
 
 MASTER_PORT=$((10000 + $RANDOM % 20000))
 
