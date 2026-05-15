@@ -27,13 +27,8 @@ DATA_DIR = Path(__file__).parent.parent.parent.parent / "Ciphers"
 OUTPUT_DIR = Path(__file__).parent / "outputs"
 HOMOPHONE_FILE = "metadata.json"
 
-TOKENIZED_TRAINING_DIR = DATA_DIR / "tokenized_normal" / "Training"
-TOKENIZED_VALIDATION_DIR = DATA_DIR / "tokenized_normal" / "Validation"
-TOKENIZED_TEST_DIR = DATA_DIR / "tokenized_normal" / "Test"
-
-TOKENIZED_SPACED_TRAINING_DIR = DATA_DIR / "tokenized_spaced" / "Training"
-TOKENIZED_SPACED_VALIDATION_DIR = DATA_DIR / "tokenized_spaced" / "Validation"
-TOKENIZED_SPACED_TEST_DIR = DATA_DIR / "tokenized_spaced" / "Test"
+TOKENIZED_TRAINING_DIR = DATA_DIR / "tokenized_normal_monoalphabetic" / "Training"
+TOKENIZED_VALIDATION_DIR = DATA_DIR / "tokenized_normal_monoalphabetic" / "Validation"
 
 @dataclass
 class Config:
@@ -53,8 +48,8 @@ class Config:
     use_spaces: bool = not cli_args.without_spaces
 
     # --- TRAINING HYPERPARAMETERS ---
-    batch_size: int = 16      # Micro-batch per GPU
-    grad_accum: int = 4      # Effective batch 64
+    batch_size: int = 32      # 
+    grad_accum: int = 2      # Effective batch 64
     steps: int = 1000
     learning_rate: float = 6e-4
     weight_decay: float = 0.1
@@ -68,19 +63,11 @@ class Config:
     output_dir: Path = OUTPUT_DIR
     tokenized_training_dir: Path = TOKENIZED_TRAINING_DIR
     tokenized_val_dir: Path = TOKENIZED_VALIDATION_DIR
-    tokenized_test_dir: Path = TOKENIZED_TEST_DIR
 
-    tokenized_spaced_train_dir: Path = TOKENIZED_SPACED_TRAINING_DIR
-    tokenized_spaced_val_dir: Path = TOKENIZED_SPACED_VALIDATION_DIR
-    tokenized_spaced_test_dir: Path = TOKENIZED_SPACED_TEST_DIR
-
-    # --- CUDA KERNEL FLAGS (L4 Optimized) ---
+    # --- CUDA KERNEL FLAGS  ---
     cuda_flags: list = field(default_factory=lambda: [
-        '-res-usage',
-        '--use_fast_math',
-        '-O3',
-        '-Xptxas -O3',
-        '--generate-code=arch=compute_100,code=sm_100'
+        '-res-usage', '--use_fast_math', '-O3', '-Xptxas -O3',
+        '--generate-code=arch=compute_100,code=sm_100' # Target B200
     ])
 
     @property
