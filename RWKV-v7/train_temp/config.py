@@ -72,16 +72,15 @@ class Config:
 
     @property
     def max_context(self) -> int:
-        """Calculate context window and force 16-token alignment for CUDA kernels."""
-        # Define the raw target length based on the dataset type
+        """Calculate context window and force alignment for CUDA kernels."""
         if self.use_spaces:
             base_len = (MAX_PLAIN_SPACES * 2) + self.buffer 
         else:
             base_len = (MAX_PLAIN_NORMAL * 2) + self.buffer
         
-        # Math to round UP to the nearest multiple of 16
-        # Example: if base_len is 20130, this returns 20144
-        aligned_len = ((base_len + 15) // 16) * 16
+        # Match alignment to the actual chunk_len (32)
+        # Formula: ((base_len + (chunk - 1)) // chunk) * chunk
+        aligned_len = ((base_len + (self.chunk_len - 1)) // self.chunk_len) * self.chunk_len
         return aligned_len
     
     @property
