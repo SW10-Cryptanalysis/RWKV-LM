@@ -45,6 +45,6 @@ echo "Launching RWKV training with $NUM_GPUS B200 processes..."
 uv run torchrun \
     --nproc_per_node=$NUM_GPUS \
     --master_port=$MASTER_PORT \
-    train.py \
+    rwkv7_train_cipher.py \
 
 echo "Training Job finished at $(date)"
