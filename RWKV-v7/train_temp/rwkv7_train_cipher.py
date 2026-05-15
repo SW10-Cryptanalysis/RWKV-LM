@@ -68,11 +68,11 @@ def safe_pad_collate(batch):
         labels, batch_first=True, padding_value=-100
     )
 
-    # Force 16-token alignment for CUDA kernels
+    # FIX: Force alignment to cfg.chunk_len (32) instead of 16
     current_len = input_ids_padded.shape[1]
-    remainder = current_len % 16
+    remainder = current_len % cfg.chunk_len
     if remainder != 0:
-        pad_len = 16 - remainder
+        pad_len = cfg.chunk_len - remainder
         input_ids_padded = torch.nn.functional.pad(input_ids_padded, (0, pad_len), value=cfg.pad_token_id)
         labels_padded = torch.nn.functional.pad(labels_padded, (0, pad_len), value=-100)
         
