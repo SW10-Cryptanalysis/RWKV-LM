@@ -45,7 +45,7 @@ class Config:
     unique_letters: int = 26
     unique_homophones: int = 0
     vocab_size: int = 0 
-    use_spaces: bool = not cli_args.without_spaces
+    use_spaces: bool = False
 
     # --- TRAINING HYPERPARAMETERS ---
     batch_size: int = 32      # 

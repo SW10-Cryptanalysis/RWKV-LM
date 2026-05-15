@@ -9,7 +9,7 @@ cd /work
 if [ ! -d "RWKV-v7" ]; then
     echo "Cloning RWKV-v7 repository..."
     # Replace with your actual RWKV repo URL
-    git clone -b ucloud https://github.com/SW10-Cryptanalysis/RWKV-LM.git 
+    git clone -b mono https://github.com/SW10-Cryptanalysis/RWKV-LM.git 
 fi
 
 cd RWKV-LM/RWKV-v7/train_temp
@@ -49,6 +49,5 @@ uv run torchrun \
     --nproc_per_node=$NUM_GPUS \
     --master_port=$MASTER_PORT \
     train.py \
-   # --without-spaces
 
 echo "Training Job finished at $(date)"
