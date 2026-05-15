@@ -37,9 +37,6 @@ uv sync
 # This environment variable tells PyTorch which architecture to compile for
 export TORCH_CUDA_ARCH_LIST="10.0"
 
-# 7. W&B Login (Optional: if your API key isn't in env)
-# uv run wandb login [YOUR_KEY_HERE]
-
 MASTER_PORT=$((10000 + $RANDOM % 20000))
 
 # 8. Launch RWKV-7 Training
