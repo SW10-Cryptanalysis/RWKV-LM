@@ -60,6 +60,7 @@ class Config:
     save_steps: int = 1000
 
     # SYSTEM
+    ucloud_checkpoint_dir: Path = Path(__file__).parent.parent.parent.parent / "Models" / "RWKV" / "RWKV-mono-10k-nosp"
     output_dir: Path = OUTPUT_DIR
     tokenized_training_dir: Path = TOKENIZED_TRAINING_DIR
     tokenized_val_dir: Path = TOKENIZED_VALIDATION_DIR
