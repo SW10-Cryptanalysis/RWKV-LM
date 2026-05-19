@@ -194,7 +194,7 @@ def train():
         prefetch_factor=4
     )
 
-    for epoch in range(10): # Example epoch loop
+    for epoch in range(cfg.epochs): # Example epoch loop
         train_sampler.set_epoch(epoch) # Critical for proper shuffling in DDP
         # Calculate how many steps into the current epoch we are
         steps_to_skip = start_step % len(train_loader)
