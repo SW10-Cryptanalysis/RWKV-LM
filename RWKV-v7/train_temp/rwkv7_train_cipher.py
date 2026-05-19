@@ -142,6 +142,7 @@ def train():
                          key=lambda x: int(x.stem.split('_')[-1]))
     
     start_step = 0
+    start_epoch = 0
     # Updated Checkpoint Logic for Cross-Architecture loading
     if checkpoints:
         latest_ckpt = checkpoints[-1]
@@ -194,10 +195,15 @@ def train():
         prefetch_factor=4
     )
 
+    start_epoch = start_step // len(train_loader)
+
     for epoch in range(cfg.epochs): # Example epoch loop
         train_sampler.set_epoch(epoch) # Critical for proper shuffling in DDP
         # Calculate how many steps into the current epoch we are
-        steps_to_skip = start_step % len(train_loader)
+        if epoch == start_epoch:
+            steps_to_skip = start_step % len(train_loader)
+        else:
+            steps_to_skip = 0
         
         # Create the iterator
         data_iter = iter(train_loader)
@@ -210,7 +216,10 @@ def train():
                 next(data_iter)
 
         # Now use the iterator in your loop
-        for step in tqdm(range(steps_to_skip, len(train_loader)), disable=(global_rank != 0)):
+        for step in tqdm(range(steps_to_skip, len(train_loader)), 
+                         initial=steps_to_skip, # <-- Tells tqdm where you are
+                         total=len(train_loader), # <-- Tells tqdm the true end point
+                         disable=(global_rank != 0)):
             batch = next(data_iter)
 
             global_step = (epoch * len(train_loader)) + step
@@ -264,12 +273,12 @@ def train():
                     "model": model.module.state_dict(),
                     "optimizer": opt.state_dict(),
                     "scaler": scaler.state_dict(),
-                    "step": step
+                    "step": global_step
                 }
                 torch.save(state, checkpoint_path)
                 
                 # (Optional) Remove the checkpoint from 2 cycles ago to save disk space
-                old_ckpt = cfg.output_dir / f"rwkv_step_{step - (cfg.save_steps * 2)}.pth"
+                old_ckpt = cfg.output_dir / f"rwkv_step_{global_step - (cfg.save_steps * 2)}.pth"
                 if old_ckpt.exists():
                     old_ckpt.unlink()
         
