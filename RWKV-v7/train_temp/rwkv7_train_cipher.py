@@ -179,7 +179,7 @@ def train():
         del checkpoint # Free up memory
     
     # 3. Distributed Data Loading
-    data_path = cfg.tokenized_spaced_train_dir if cfg.use_spaces else cfg.tokenized_training_dir
+    data_path = cfg.tokenized_training_dir
     train_ds = PretokenizedCipherDataset(data_path)
     
     # NEW: DistributedSampler splits the data into 4 unique chunks
@@ -210,8 +210,12 @@ def train():
                 next(data_iter)
 
         # Now use the iterator in your loop
-        for step in tqdm(range(start_step, len(train_loader)), disable=(global_rank != 0)):
+        for step in tqdm(range(steps_to_skip, len(train_loader)), disable=(global_rank != 0)):
             batch = next(data_iter)
+
+            global_step = (epoch * len(train_loader)) + step
+
+
             # ... rest of your training code ...
             model.train()
             input_ids = batch["input_ids"].to(device, non_blocking=True)
@@ -244,7 +248,7 @@ def train():
                 opt.zero_grad(set_to_none=True)
 
             # 4. Rank-0 Logging & Checkpointing
-            if global_rank == 0 and step % cfg.logging_steps == 0:
+            if global_rank == 0 and global_step % cfg.logging_steps == 0:
                 ser = compute_ser(logits, labels)
                 vram = torch.cuda.max_memory_allocated() / (1024**3)
                 wandb.log({
@@ -253,8 +257,8 @@ def train():
                     "train/vram_gb": vram
                 })
 
-            if global_rank == 0 and step > 0 and step % cfg.save_steps == 0:
-                checkpoint_path = cfg.output_dir / f"rwkv_step_{step}.pth"
+            if global_rank == 0 and global_step > 0 and global_step % cfg.save_steps == 0:
+                checkpoint_path = cfg.output_dir / f"rwkv_step_{global_step}.pth"
                 # Save a bundle
                 state = {
                     "model": model.module.state_dict(),
@@ -268,6 +272,8 @@ def train():
                 old_ckpt = cfg.output_dir / f"rwkv_step_{step - (cfg.save_steps * 2)}.pth"
                 if old_ckpt.exists():
                     old_ckpt.unlink()
+        
+        start_step = 0
 
     # Final Sync and Save
     dist.barrier()
