@@ -152,9 +152,12 @@ def train():
         
         # Handle DDP vs non-DDP naming mismatch
         # If saved without DDP but loading into DDP:
+        # Ensure we strip 'module.' from the checkpoint keys 
+        # so they match the base, unwrapped model.
         new_state_dict = {}
         for k, v in state_dict.items():
-            name = k if k.startswith('module.') else f'module.{k}'
+            # If the checkpoint key starts with 'module.', remove those first 7 characters
+            name = k[7:] if k.startswith('module.') else k
             new_state_dict[name] = v
             
         model.load_state_dict(new_state_dict)
