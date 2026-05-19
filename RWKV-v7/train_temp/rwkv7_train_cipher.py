@@ -228,6 +228,8 @@ def train():
                          disable=(global_rank != 0)):
             batch = next(data_iter)
 
+            logger.info(f"CURRENT GLOBAL_STEP: {global_step}")
+
             model.train()
             input_ids = batch["input_ids"].to(device, non_blocking=True)
             labels = batch["labels"].to(device, non_blocking=True)
