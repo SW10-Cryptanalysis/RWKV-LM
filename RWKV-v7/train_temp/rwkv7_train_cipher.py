@@ -182,11 +182,9 @@ def train():
         scaler.load_state_dict(checkpoint["scaler"])
         del checkpoint # Free up memory
     
-    # 3. Distributed Data Loading
     data_path = cfg.tokenized_training_dir
     train_ds = PretokenizedCipherDataset(data_path)
     
-    # NEW: DistributedSampler splits the data into 4 unique chunks
     train_sampler = DistributedSampler(
     train_ds, 
     shuffle=True, 
@@ -204,9 +202,10 @@ def train():
     )
 
     start_epoch = start_step // len(train_loader)
+    global_step = start_step
 
-    for epoch in range(cfg.epochs): # Example epoch loop
-        train_sampler.set_epoch(epoch) # Critical for proper shuffling in DDP
+    for epoch in range(cfg.epochs): 
+        train_sampler.set_epoch(epoch) 
         # Calculate how many steps into the current epoch we are
         if epoch == start_epoch:
             steps_to_skip = start_step % len(train_loader)
@@ -223,17 +222,12 @@ def train():
             for _ in range(steps_to_skip):
                 next(data_iter)
 
-        # Now use the iterator in your loop
         for step in tqdm(range(steps_to_skip, len(train_loader)), 
-                         initial=steps_to_skip, # <-- Tells tqdm where you are
-                         total=len(train_loader), # <-- Tells tqdm the true end point
+                         initial=steps_to_skip, 
+                         total=len(train_loader),
                          disable=(global_rank != 0)):
             batch = next(data_iter)
 
-            global_step = (epoch * len(train_loader)) + step
-
-
-            # ... rest of your training code ...
             model.train()
             input_ids = batch["input_ids"].to(device, non_blocking=True)
             labels = batch["labels"].to(device, non_blocking=True)
@@ -262,6 +256,7 @@ def train():
                 clip_grad_norm_(model.parameters(), cfg.grad_clip)
                 scaler.step(opt)
                 scaler.update()
+                global_step += 1
                 opt.zero_grad(set_to_none=True)
 
             # 4. Rank-0 Logging & Checkpointing
