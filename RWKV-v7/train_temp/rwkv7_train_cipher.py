@@ -135,6 +135,8 @@ def train():
     # 2. Model Setup
     # --- 2. Model Setup (Resume Logic Fix) ---
     model = get_model().to(device)
+
+    print(cfg.output_dir)
     
     checkpoints = sorted(list(cfg.output_dir.glob("rwkv_step_*.pth")), 
                          key=lambda x: int(x.stem.split('_')[-1]))

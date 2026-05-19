@@ -24,7 +24,7 @@ MAX_PLAIN_NORMAL = 10063
 
 # --- PATHS ---
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "Ciphers"
-OUTPUT_DIR = Path(__file__).parent.parent.parent.parent.parent.parent.parent / "Models" / "RWKV" / "RWKV-mono-10k-nosp"
+OUTPUT_DIR = Path(__file__).parent.parent.parent.parent.parent.parent / "Models" / "RWKV" / "RWKV-mono-10k-nosp"
 HOMOPHONE_FILE = "metadata.json"
 
 TOKENIZED_TRAINING_DIR = DATA_DIR / "tokenized_normal_monoalphabetic" / "Training"
