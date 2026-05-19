@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 
+torch.manual_seed(cfg.seed)
+np.random.seed(cfg.seed)
+
 # L4/Ada Lovelace Optimizations
 torch.backends.cuda.matmul.fp32_precision = "tf32"
 torch.backends.cudnn.conv.fp32_precision = "tf32"
@@ -184,7 +187,12 @@ def train():
     train_ds = PretokenizedCipherDataset(data_path)
     
     # NEW: DistributedSampler splits the data into 4 unique chunks
-    train_sampler = DistributedSampler(train_ds, shuffle=True, drop_last=True)
+    train_sampler = DistributedSampler(
+    train_ds, 
+    shuffle=True, 
+    drop_last=True,
+    seed=cfg.seed # Force deterministic shuffling across resumes
+)
     train_loader = DataLoader(
         train_ds, 
         batch_size=cfg.batch_size, 

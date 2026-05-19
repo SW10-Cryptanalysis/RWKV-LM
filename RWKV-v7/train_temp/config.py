@@ -55,6 +55,7 @@ class Config:
     weight_decay: float = 0.1
     grad_clip: float = 1.0
     epochs: int = 3
+    seed: int = 1927843
     
     # --- LOGGING & SYSTEM ---
     logging_steps: int = 10
