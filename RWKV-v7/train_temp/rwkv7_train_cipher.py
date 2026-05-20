@@ -202,7 +202,8 @@ def train():
     )
 
     start_epoch = start_step // len(train_loader)
-    global_step = start_step
+    global_step = checkpoint["step"]
+    logger.info(f"CURRENT GLOBAL_STEP: {global_step}")
 
     for epoch in range(cfg.epochs): 
         train_sampler.set_epoch(epoch) 
@@ -227,8 +228,6 @@ def train():
                          total=len(train_loader),
                          disable=(global_rank != 0)):
             batch = next(data_iter)
-
-            logger.info(f"CURRENT GLOBAL_STEP: {global_step}")
 
             model.train()
             input_ids = batch["input_ids"].to(device, non_blocking=True)
