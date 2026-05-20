@@ -180,6 +180,10 @@ def train():
     if checkpoints:
         opt.load_state_dict(checkpoint["optimizer"])
         scaler.load_state_dict(checkpoint["scaler"])
+
+        global_step = checkpoint["step"]
+        logger.info(f"CURRENT GLOBAL_STEP: {global_step}")
+
         del checkpoint # Free up memory
     
     data_path = cfg.tokenized_training_dir
@@ -202,8 +206,6 @@ def train():
     )
 
     start_epoch = start_step // len(train_loader)
-    global_step = checkpoint["step"]
-    logger.info(f"CURRENT GLOBAL_STEP: {global_step}")
 
     for epoch in range(cfg.epochs): 
         train_sampler.set_epoch(epoch) 
